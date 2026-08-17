@@ -7,6 +7,9 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 import pandas as pd
 from relatorios import gerar_relatorio_mab, gerar_relatorio_mcr
 from aws_interface import router as aws_router
+from carregar_env import carregar_env, sefaz_path
+
+carregar_env()
 
 
 app = FastAPI(title="SEFAZ Integração")
@@ -80,29 +83,34 @@ def encontrar_pasta_renuncia_desconto(caminho_base: str) -> str:
     
     return None
 
+def caminhos_safci_exportacao(ano: int = 2026, arquivos_safci: bool = False) -> list:
+    meses = [
+        "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
+        "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro",
+    ]
+    caminhos = []
+    for mes in meses:
+        partes = [
+            "Arrecadacao",
+            "SEFAZ-Tesouraria",
+            "SAFCI INTEGRACAO",
+            "Arquivos Exportação ao SAFCI",
+            str(ano),
+            f"{mes} {ano}",
+        ]
+        if arquivos_safci:
+            partes.append("Arquivos SAFCI")
+        caminhos.append(sefaz_path(*partes))
+    return caminhos
+
 def gerar_caminhos_deducoes_dinamicos() -> list:
     """
     Gera os caminhos de deduções dinamicamente, buscando pastas de 'Renúncia e Desconto'
     ignorando acentos, maiúsculas e minúsculas.
     """
-    caminhos_base = [
-        r"\\10.129.1.254\sefas - sufin\Arrecadacao\SEFAZ-Tesouraria\SAFCI INTEGRACAO\Arquivos Exportação ao SAFCI\2026\Janeiro 2026",
-        r"\\10.129.1.254\sefas - sufin\Arrecadacao\SEFAZ-Tesouraria\SAFCI INTEGRACAO\Arquivos Exportação ao SAFCI\2026\Fevereiro 2026",
-        r"\\10.129.1.254\sefas - sufin\Arrecadacao\SEFAZ-Tesouraria\SAFCI INTEGRACAO\Arquivos Exportação ao SAFCI\2026\Março 2026",
-        r"\\10.129.1.254\sefas - sufin\Arrecadacao\SEFAZ-Tesouraria\SAFCI INTEGRACAO\Arquivos Exportação ao SAFCI\2026\Abril 2026",
-        r"\\10.129.1.254\sefas - sufin\Arrecadacao\SEFAZ-Tesouraria\SAFCI INTEGRACAO\Arquivos Exportação ao SAFCI\2026\Maio 2026",
-        r"\\10.129.1.254\sefas - sufin\Arrecadacao\SEFAZ-Tesouraria\SAFCI INTEGRACAO\Arquivos Exportação ao SAFCI\2026\Junho 2026",
-        r"\\10.129.1.254\sefas - sufin\Arrecadacao\SEFAZ-Tesouraria\SAFCI INTEGRACAO\Arquivos Exportação ao SAFCI\2026\Julho 2026",
-        r"\\10.129.1.254\sefas - sufin\Arrecadacao\SEFAZ-Tesouraria\SAFCI INTEGRACAO\Arquivos Exportação ao SAFCI\2026\Agosto 2026",
-        r"\\10.129.1.254\sefas - sufin\Arrecadacao\SEFAZ-Tesouraria\SAFCI INTEGRACAO\Arquivos Exportação ao SAFCI\2026\Setembro 2026",
-        r"\\10.129.1.254\sefas - sufin\Arrecadacao\SEFAZ-Tesouraria\SAFCI INTEGRACAO\Arquivos Exportação ao SAFCI\2026\Outubro 2026",
-        r"\\10.129.1.254\sefas - sufin\Arrecadacao\SEFAZ-Tesouraria\SAFCI INTEGRACAO\Arquivos Exportação ao SAFCI\2026\Novembro 2026",
-        r"\\10.129.1.254\sefas - sufin\Arrecadacao\SEFAZ-Tesouraria\SAFCI INTEGRACAO\Arquivos Exportação ao SAFCI\2026\Dezembro 2026",
-    ]
-    
     caminhos_deducoes = []
     
-    for caminho_base in caminhos_base:
+    for caminho_base in caminhos_safci_exportacao():
         # Busca a pasta de 'Renúncia e Desconto' de forma inteligente
         pasta_renuncia_desconto = encontrar_pasta_renuncia_desconto(caminho_base)
         
@@ -118,20 +126,7 @@ def testar_busca_pastas():
     """
     Endpoint para testar a busca inteligente de pastas de 'Renúncia e Desconto'
     """
-    caminhos_base = [
-        r"\\10.129.1.254\sefas - sufin\Arrecadacao\SEFAZ-Tesouraria\SAFCI INTEGRACAO\Arquivos Exportação ao SAFCI\2026\Janeiro 2026",
-        r"\\10.129.1.254\sefas - sufin\Arrecadacao\SEFAZ-Tesouraria\SAFCI INTEGRACAO\Arquivos Exportação ao SAFCI\2026\Fevereiro 2026",
-        r"\\10.129.1.254\sefas - sufin\Arrecadacao\SEFAZ-Tesouraria\SAFCI INTEGRACAO\Arquivos Exportação ao SAFCI\2026\Março 2026",
-        r"\\10.129.1.254\sefas - sufin\Arrecadacao\SEFAZ-Tesouraria\SAFCI INTEGRACAO\Arquivos Exportação ao SAFCI\2026\Abril 2026",
-        r"\\10.129.1.254\sefas - sufin\Arrecadacao\SEFAZ-Tesouraria\SAFCI INTEGRACAO\Arquivos Exportação ao SAFCI\2026\Maio 2026",
-        r"\\10.129.1.254\sefas - sufin\Arrecadacao\SEFAZ-Tesouraria\SAFCI INTEGRACAO\Arquivos Exportação ao SAFCI\2026\Junho 2026",
-        r"\\10.129.1.254\sefas - sufin\Arrecadacao\SEFAZ-Tesouraria\SAFCI INTEGRACAO\Arquivos Exportação ao SAFCI\2026\Julho 2026",
-        r"\\10.129.1.254\sefas - sufin\Arrecadacao\SEFAZ-Tesouraria\SAFCI INTEGRACAO\Arquivos Exportação ao SAFCI\2026\Agosto 2026",
-        r"\\10.129.1.254\sefas - sufin\Arrecadacao\SEFAZ-Tesouraria\SAFCI INTEGRACAO\Arquivos Exportação ao SAFCI\2026\Setembro 2026",
-        r"\\10.129.1.254\sefas - sufin\Arrecadacao\SEFAZ-Tesouraria\SAFCI INTEGRACAO\Arquivos Exportação ao SAFCI\2026\Outubro 2026",
-        r"\\10.129.1.254\sefas - sufin\Arrecadacao\SEFAZ-Tesouraria\SAFCI INTEGRACAO\Arquivos Exportação ao SAFCI\2026\Novembro 2026",
-        r"\\10.129.1.254\sefas - sufin\Arrecadacao\SEFAZ-Tesouraria\SAFCI INTEGRACAO\Arquivos Exportação ao SAFCI\2026\Dezembro 2026",
-    ]
+    caminhos_base = caminhos_safci_exportacao()
     
     resultados_teste = []
     
@@ -258,14 +253,14 @@ def processar_pasta_completa(caminho_base: str) -> list:
     return resultados
 
 caminhos_base = [
-    r"\\10.129.1.254\sefas - sufin\Arrecadacao\Recep\Arquivos FEBRABRAN\BANCO INTER\INTER2026",
-    r"\\10.129.1.254\sefas - sufin\Arrecadacao\Recep\Arquivos FEBRABRAN\BANCOOB\BANCOOB26",
-    r"\\10.129.1.254\sefas - sufin\Arrecadacao\Recep\Arquivos FEBRABRAN\BB\BRASIL2026",
-    r"\\10.129.1.254\sefas - sufin\Arrecadacao\Recep\Arquivos FEBRABRAN\BRADESCO\BRADE2026",
-    r"\\10.129.1.254\sefas - sufin\Arrecadacao\Recep\Arquivos FEBRABRAN\CEF\CAIXA2026",
-    r"\\10.129.1.254\sefas - sufin\Arrecadacao\Recep\Arquivos FEBRABRAN\ITAU\ITAU2026",
-    r"\\10.129.1.254\sefas - sufin\Arrecadacao\Recep\Arquivos FEBRABRAN\MERCANTIL\MERC2026",
-    r"\\10.129.1.254\sefas - sufin\Arrecadacao\Recep\Arquivos FEBRABRAN\SANTANDER\BSA26"
+    sefaz_path("Arrecadacao", "Recep", "Arquivos FEBRABRAN", "BANCO INTER", "INTER2026"),
+    sefaz_path("Arrecadacao", "Recep", "Arquivos FEBRABRAN", "BANCOOB", "BANCOOB26"),
+    sefaz_path("Arrecadacao", "Recep", "Arquivos FEBRABRAN", "BB", "BRASIL2026"),
+    sefaz_path("Arrecadacao", "Recep", "Arquivos FEBRABRAN", "BRADESCO", "BRADE2026"),
+    sefaz_path("Arrecadacao", "Recep", "Arquivos FEBRABRAN", "CEF", "CAIXA2026"),
+    sefaz_path("Arrecadacao", "Recep", "Arquivos FEBRABRAN", "ITAU", "ITAU2026"),
+    sefaz_path("Arrecadacao", "Recep", "Arquivos FEBRABRAN", "MERCANTIL", "MERC2026"),
+    sefaz_path("Arrecadacao", "Recep", "Arquivos FEBRABRAN", "SANTANDER", "BSA26"),
 ]
 
 #############################################################
@@ -587,10 +582,7 @@ def processar_pasta_classificacao(caminho_pasta: str) -> list:
                     print(f"Erro processando o arquivo {caminho_arquivo}: {e}")
     return resultados
 
-caminhos_classificacao = [
-    r"\\10.129.1.254\sefas - sufin\Arrecadacao\SEFAZ-Tesouraria\SAFCI INTEGRACAO\Arquivos Exportação ao SAFCI\2026\Janeiro 2026\Arquivos SAFCI",
-    r"\\10.129.1.254\sefas - sufin\Arrecadacao\SEFAZ-Tesouraria\SAFCI INTEGRACAO\Arquivos Exportação ao SAFCI\2026\Fevereiro 2026\Arquivos SAFCI"
-]
+caminhos_classificacao = caminhos_safci_exportacao(arquivos_safci=True)
 
 #############################################################
 # Helper: adicionar codigo_resumido em resultados do MCR
@@ -3052,22 +3044,6 @@ def download_todos_dados_json(
     )
 
 
-caminhos_classificacao = [
-    r"\\10.129.1.254\sefas - sufin\Arrecadacao\SEFAZ-Tesouraria\SAFCI INTEGRACAO\Arquivos Exportação ao SAFCI\2026\Janeiro 2026\Arquivos SAFCI",
-    r"\\10.129.1.254\sefas - sufin\Arrecadacao\SEFAZ-Tesouraria\SAFCI INTEGRACAO\Arquivos Exportação ao SAFCI\2026\Fevereiro 2026\Arquivos SAFCI",
-    r"\\10.129.1.254\sefas - sufin\Arrecadacao\SEFAZ-Tesouraria\SAFCI INTEGRACAO\Arquivos Exportação ao SAFCI\2026\Março 2026\Arquivos SAFCI",
-    r"\\10.129.1.254\sefas - sufin\Arrecadacao\SEFAZ-Tesouraria\SAFCI INTEGRACAO\Arquivos Exportação ao SAFCI\2026\Abril 2026\Arquivos SAFCI",
-    r"\\10.129.1.254\sefas - sufin\Arrecadacao\SEFAZ-Tesouraria\SAFCI INTEGRACAO\Arquivos Exportação ao SAFCI\2026\Maio 2026\Arquivos SAFCI",
-    r"\\10.129.1.254\sefas - sufin\Arrecadacao\SEFAZ-Tesouraria\SAFCI INTEGRACAO\Arquivos Exportação ao SAFCI\2026\Junho 2026\Arquivos SAFCI",
-    r"\\10.129.1.254\sefas - sufin\Arrecadacao\SEFAZ-Tesouraria\SAFCI INTEGRACAO\Arquivos Exportação ao SAFCI\2026\Julho 2026\Arquivos SAFCI",
-    r"\\10.129.1.254\sefas - sufin\Arrecadacao\SEFAZ-Tesouraria\SAFCI INTEGRACAO\Arquivos Exportação ao SAFCI\2026\Agosto 2026\Arquivos SAFCI",
-    r"\\10.129.1.254\sefas - sufin\Arrecadacao\SEFAZ-Tesouraria\SAFCI INTEGRACAO\Arquivos Exportação ao SAFCI\2026\Setembro 2026\Arquivos SAFCI",
-    r"\\10.129.1.254\sefas - sufin\Arrecadacao\SEFAZ-Tesouraria\SAFCI INTEGRACAO\Arquivos Exportação ao SAFCI\2026\Outubro 2026\Arquivos SAFCI",
-    r"\\10.129.1.254\sefas - sufin\Arrecadacao\SEFAZ-Tesouraria\SAFCI INTEGRACAO\Arquivos Exportação ao SAFCI\2026\Novembro 2026\Arquivos SAFCI",
-    r"\\10.129.1.254\sefas - sufin\Arrecadacao\SEFAZ-Tesouraria\SAFCI INTEGRACAO\Arquivos Exportação ao SAFCI\2026\Dezembro 2026\Arquivos SAFCI",
-]
-
-
 @app.get("/gerar_relatorio_mab/")
 def gerar_relatorio_mab_endpoint(
     mes: str = Query(None, description="Mês no formato MM (ex: '02' para Fevereiro)"),
@@ -3116,5 +3092,5 @@ def gerar_relatorio_mcr_endpoint(
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=8000)
+    uvicorn.run("main:app", host="0.0.0.0", port=int(os.getenv("PORT", "8000")))
 

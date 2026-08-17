@@ -3,6 +3,7 @@ __pycache__/
 .env
 .venv/
 venv/
+data/
 saida_pacotes/
 aws_cache_index.json
 *.xlsx

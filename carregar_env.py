@@ -1,5 +1,7 @@
 import os
 
+PREFIXO_SEFAZ_PADRAO = r"\\10.129.1.254\sefas - sufin"
+
 
 def carregar_env() -> None:
     caminho = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
@@ -12,3 +14,15 @@ def carregar_env() -> None:
                 continue
             chave, valor = linha.split("=", 1)
             os.environ.setdefault(chave.strip(), valor.strip().strip('"').strip("'"))
+
+
+def sefaz_path(*partes: str) -> str:
+    """Monta caminho na pasta da SEFAZ. No Docker use SEFAZ_SHARE_ROOT=/mnt/sefaz."""
+    carregar_env()
+    root = os.getenv("SEFAZ_SHARE_ROOT", PREFIXO_SEFAZ_PADRAO).rstrip("/\\")
+    rel = "/".join(p.replace("\\", "/").strip("/") for p in partes if p)
+    if not rel:
+        return root
+    if root.startswith("\\\\") or (len(root) >= 2 and root[1] == ":"):
+        return root + "\\" + rel.replace("/", "\\")
+    return root + "/" + rel

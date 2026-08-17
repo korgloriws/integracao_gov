@@ -1,0 +1,13 @@
+.git
+.gitignore
+__pycache__
+*.py[cod]
+.env
+.venv
+venv
+saida_pacotes
+data
+aws_cache_index.json
+*.xlsx
+.cursor
+*.md

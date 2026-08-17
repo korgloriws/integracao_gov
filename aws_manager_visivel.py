@@ -86,7 +86,10 @@ class AWSManagerVisivel:
         }
 
     def _cache_path(self) -> str:
-        return os.path.join(os.getcwd(), "aws_cache_index.json")
+        return os.getenv(
+            "AWS_CACHE_INDEX",
+            os.path.join(os.getcwd(), "aws_cache_index.json"),
+        )
 
     def _ler_cache(self) -> Dict[str, Any]:
         try:
