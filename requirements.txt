@@ -1,0 +1,8 @@
+fastapi
+uvicorn
+pandas
+requests
+openpyxl
+xlrd
+xlsxwriter
+python-multipart

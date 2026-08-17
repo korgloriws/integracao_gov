@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+.env
+.venv/
+venv/
+saida_pacotes/
+aws_cache_index.json
+*.xlsx
+.DS_Store
+Thumbs.db
