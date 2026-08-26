@@ -1,0 +1,1056 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SEFAZ Integração</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #eef2f6;
+      --bg-glow: radial-gradient(1200px 500px at 10% -10%, #ffe8d6 0%, transparent 55%),
+                 radial-gradient(900px 400px at 100% 0%, #dbeafe 0%, transparent 50%);
+      --surface: #ffffff;
+      --surface-2: #f8fafc;
+      --ink: #152033;
+      --muted: #5b6b7c;
+      --line: #d8e0ea;
+      --accent: #e85d04;
+      --accent-soft: #fff4eb;
+      --accent-hover: #c94d03;
+      --ok: #15803d;
+      --ok-bg: #dcfce7;
+      --warn: #b45309;
+      --warn-bg: #fef3c7;
+      --err: #b91c1c;
+      --err-bg: #fee2e2;
+      --idle: #94a3b8;
+      --header-bg: #ffffff;
+      --header-ink: #152033;
+      --header-sub: #64748b;
+      --sidebar: #ffffff;
+      --sidebar-text: #334155;
+      --sidebar-hover: #fff4eb;
+      --sidebar-active: #e85d04;
+      --chip-bg: #f1f5f9;
+      --chip-ink: #334155;
+      --chip-line: #d8e0ea;
+      --input-bg: #ffffff;
+      --row-hover: #fff7ed;
+      --rule-bg: #fff7ed;
+      --rule-line: #fdba74;
+      --overlay-bg: rgba(21, 32, 51, .42);
+      --pre-bg: #0f172a;
+      --pre-ink: #e2e8f0;
+      --shadow: 0 1px 2px rgba(21, 32, 51, .04), 0 8px 24px rgba(21, 32, 51, .06);
+      --shadow-lg: 0 12px 40px rgba(21, 32, 51, .10);
+      --radius: 14px;
+      --ease: cubic-bezier(.22, 1, .36, 1);
+    }
+    html[data-theme="dark"] {
+      --bg: #0c1118;
+      --bg-glow: radial-gradient(1000px 480px at 8% -8%, #3b1d0f 0%, transparent 50%),
+                 radial-gradient(800px 420px at 100% 0%, #122033 0%, transparent 48%);
+      --surface: #151c27;
+      --surface-2: #1a2332;
+      --ink: #f1f5f9;
+      --muted: #94a3b8;
+      --line: #2a3546;
+      --accent: #fb923c;
+      --accent-soft: #2a1a10;
+      --accent-hover: #fdba74;
+      --ok: #86efac;
+      --ok-bg: #14532d;
+      --warn: #fde68a;
+      --warn-bg: #78350f;
+      --err: #fecaca;
+      --err-bg: #7f1d1d;
+      --idle: #64748b;
+      --header-bg: #101822;
+      --header-ink: #f1f5f9;
+      --header-sub: #94a3b8;
+      --sidebar: #101822;
+      --sidebar-text: #cbd5e1;
+      --sidebar-hover: #1a2332;
+      --sidebar-active: #fb923c;
+      --chip-bg: #1a2332;
+      --chip-ink: #e2e8f0;
+      --chip-line: #2a3546;
+      --input-bg: #0f1620;
+      --row-hover: #243042;
+      --rule-bg: #2a1a10;
+      --rule-line: #9a3412;
+      --overlay-bg: rgba(0, 0, 0, .58);
+      --pre-bg: #020617;
+      --pre-ink: #e2e8f0;
+      --shadow: 0 1px 2px rgba(0,0,0,.25), 0 10px 28px rgba(0,0,0,.28);
+      --shadow-lg: 0 16px 48px rgba(0,0,0,.35);
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; }
+    body {
+      font-family: "Manrope", "Segoe UI", sans-serif;
+      background: var(--bg);
+      background-image: var(--bg-glow);
+      background-attachment: fixed;
+      color: var(--ink);
+      display: flex;
+      flex-direction: column;
+      transition: background-color .35s var(--ease), color .25s ease;
+    }
+    header {
+      background: color-mix(in srgb, var(--header-bg) 88%, transparent);
+      backdrop-filter: blur(12px);
+      color: var(--header-ink);
+      padding: 14px 22px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      flex-shrink: 0;
+      border-bottom: 1px solid var(--line);
+      box-shadow: var(--shadow);
+      z-index: 5;
+    }
+    .brand {
+      display: flex; align-items: center; gap: 12px;
+    }
+    .brand-mark {
+      width: 36px; height: 36px; border-radius: 10px;
+      background: linear-gradient(135deg, var(--accent), #f59e0b);
+      display: grid; place-items: center;
+      color: #fff; font-weight: 800; font-size: 13px;
+      box-shadow: 0 6px 16px color-mix(in srgb, var(--accent) 40%, transparent);
+      animation: markPulse 3.2s ease-in-out infinite;
+    }
+    @keyframes markPulse {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-2px); }
+    }
+    header h1 { margin: 0; font-size: 17px; font-weight: 800; letter-spacing: -.02em; }
+    header .sub { color: var(--header-sub); font-size: 12px; margin-top: 2px; font-weight: 500; }
+    .chips { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    .chip {
+      display: flex; align-items: center; gap: 8px;
+      background: var(--chip-bg); border: 1px solid var(--chip-line);
+      color: var(--chip-ink); border-radius: 999px; padding: 6px 12px; font-size: 12px;
+      font-weight: 600; transition: transform .2s var(--ease), box-shadow .2s ease;
+    }
+    .chip:hover { transform: translateY(-1px); }
+    .dot {
+      width: 8px; height: 8px; border-radius: 50%; background: var(--idle);
+      box-shadow: 0 0 0 0 color-mix(in srgb, var(--idle) 40%, transparent);
+    }
+    .chip.ok .dot { background: #22c55e; animation: pingDot 2s ease infinite; }
+    .chip.err .dot { background: #ef4444; animation: pingDot 1.4s ease infinite; }
+    .chip.warn .dot { background: #f59e0b; }
+    @keyframes pingDot {
+      0% { box-shadow: 0 0 0 0 color-mix(in srgb, currentColor 45%, transparent); }
+      70% { box-shadow: 0 0 0 6px transparent; }
+      100% { box-shadow: 0 0 0 0 transparent; }
+    }
+    .theme-btn, .chip-btn {
+      background: var(--chip-bg); color: var(--chip-ink); border: 1px solid var(--chip-line);
+      border-radius: 999px; padding: 7px 13px; font-size: 12px; cursor: pointer;
+      font-family: inherit; font-weight: 650;
+      transition: background .2s ease, transform .2s var(--ease), border-color .2s ease;
+    }
+    .theme-btn:hover, .chip-btn:hover {
+      border-color: var(--accent);
+      transform: translateY(-1px);
+    }
+    .layout { display: flex; flex: 1; min-height: 0; }
+    nav.steps {
+      width: 236px;
+      background: var(--sidebar);
+      color: var(--sidebar-text);
+      padding: 18px 12px;
+      display: flex; flex-direction: column; gap: 4px;
+      flex-shrink: 0;
+      border-right: 1px solid var(--line);
+      box-shadow: var(--shadow);
+    }
+    nav.steps .nav-label {
+      font-size: 10px; letter-spacing: .12em; text-transform: uppercase;
+      color: var(--muted); padding: 4px 12px 10px; font-weight: 700;
+    }
+    nav.steps button {
+      text-align: left; background: transparent; border: 0; color: inherit;
+      padding: 11px 12px; border-radius: 10px; cursor: pointer; font-size: 13.5px;
+      font-family: inherit; font-weight: 600;
+      display: flex; align-items: center; gap: 10px;
+      position: relative;
+      transition: background .2s ease, color .2s ease, transform .2s var(--ease);
+    }
+    nav.steps button .ico {
+      width: 28px; height: 28px; border-radius: 8px;
+      display: grid; place-items: center;
+      background: var(--surface-2); border: 1px solid var(--line);
+      font-size: 13px; flex-shrink: 0;
+      transition: background .2s ease, border-color .2s ease, color .2s ease;
+    }
+    nav.steps button:hover {
+      background: var(--sidebar-hover);
+      transform: translateX(2px);
+    }
+    nav.steps button.active {
+      background: var(--accent-soft);
+      color: var(--accent);
+    }
+    nav.steps button.active .ico {
+      background: var(--accent); color: #fff; border-color: var(--accent);
+    }
+    nav.steps button.active::before {
+      content: "";
+      position: absolute; left: 0; top: 10px; bottom: 10px; width: 3px;
+      border-radius: 0 4px 4px 0; background: var(--accent);
+      animation: barIn .35s var(--ease);
+    }
+    @keyframes barIn { from { transform: scaleY(0); } to { transform: scaleY(1); } }
+    nav.steps .hint {
+      font-size: 11px; color: var(--muted); padding: 18px 12px 4px; line-height: 1.45;
+      border-top: 1px dashed var(--line); margin-top: 12px;
+    }
+    main {
+      flex: 1; overflow: auto; padding: 28px;
+      position: relative;
+    }
+    .panel {
+      display: none;
+      max-width: 1280px;
+      opacity: 0;
+      transform: translateY(10px);
+    }
+    .panel.active {
+      display: block;
+      animation: panelIn .45s var(--ease) forwards;
+    }
+    @keyframes panelIn {
+      from { opacity: 0; transform: translateY(12px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .panel-head {
+      display: flex; align-items: flex-start; justify-content: space-between;
+      gap: 16px; margin-bottom: 18px; flex-wrap: wrap;
+    }
+    .panel-head .eyebrow {
+      font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase;
+      color: var(--accent); margin-bottom: 6px;
+    }
+    h2 { margin: 0 0 6px; font-size: 26px; color: var(--ink); font-weight: 800; letter-spacing: -.03em; }
+    p.lead { margin: 0; color: var(--muted); max-width: 62ch; line-height: 1.5; }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 20px;
+      margin-bottom: 16px;
+      color: var(--ink);
+      box-shadow: var(--shadow);
+      transition: transform .25s var(--ease), box-shadow .25s ease, border-color .25s ease;
+      animation: cardRise .5s var(--ease) both;
+    }
+    .card:hover { box-shadow: var(--shadow-lg); }
+    .card h3 {
+      margin: 0 0 12px; font-size: 14px; font-weight: 750;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .card h3::before {
+      content: ""; width: 8px; height: 8px; border-radius: 50%;
+      background: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft);
+    }
+    @keyframes cardRise {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .filters {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 12px;
+    }
+    .field label {
+      display: block; font-size: 11px; color: var(--muted); margin-bottom: 5px;
+      font-weight: 700; letter-spacing: .02em; text-transform: uppercase;
+    }
+    input, select {
+      width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px;
+      font: inherit; background: var(--input-bg); color: var(--ink);
+      transition: border-color .2s ease, box-shadow .2s ease;
+    }
+    input:focus, select:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+    }
+    .field.span2 { grid-column: span 2; }
+    .actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: end; margin-top: 14px; }
+    .btn {
+      border: 0; border-radius: 10px; padding: 11px 18px; cursor: pointer;
+      font: inherit; font-weight: 700; background: var(--accent); color: #fff;
+      transition: transform .2s var(--ease), background .2s ease, box-shadow .2s ease;
+      box-shadow: 0 6px 16px color-mix(in srgb, var(--accent) 28%, transparent);
+    }
+    .btn:hover { background: var(--accent-hover); transform: translateY(-1px); }
+    .btn:active { transform: translateY(0); }
+    .btn:disabled { opacity: .55; cursor: not-allowed; box-shadow: none; }
+    .btn.secondary {
+      background: var(--ink); color: var(--surface); box-shadow: none;
+    }
+    html[data-theme="dark"] .btn.secondary { background: #334155; color: #fff; }
+    .btn.ghost {
+      background: var(--surface-2); color: var(--ink); border: 1px solid var(--line);
+      box-shadow: none;
+    }
+    .btn.ghost:hover { border-color: var(--accent); color: var(--accent); }
+    .muted { color: var(--muted); font-size: 13px; }
+    code {
+      font-family: "JetBrains Mono", ui-monospace, monospace;
+      font-size: .9em;
+      background: var(--accent-soft);
+      color: var(--accent);
+      padding: 1px 6px; border-radius: 6px;
+    }
+    .rule {
+      background: var(--rule-bg); border: 1px solid var(--rule-line);
+      border-radius: 12px; padding: 14px 16px; font-size: 13px;
+      position: relative; overflow: hidden;
+    }
+    .rule::before {
+      content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px;
+      background: var(--accent);
+    }
+    .rule strong { color: var(--accent); }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+    th {
+      color: var(--muted); font-weight: 700; font-size: 11px; text-transform: uppercase;
+      letter-spacing: .04em; position: sticky; top: 0; background: var(--surface-2);
+    }
+    td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; font-family: "JetBrains Mono", monospace; font-size: 12px; }
+    tr.clickable { cursor: pointer; transition: background .15s ease; }
+    tr.clickable:hover { background: var(--row-hover); }
+    .stats { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin: 16px 0; }
+    .stat {
+      background: linear-gradient(180deg, var(--surface) 0%, var(--surface-2) 100%);
+      border: 1px solid var(--line); border-radius: 12px; padding: 14px;
+      box-shadow: var(--shadow);
+      animation: cardRise .45s var(--ease) both;
+      transition: transform .2s var(--ease);
+    }
+    .stat:nth-child(1) { animation-delay: .02s; }
+    .stat:nth-child(2) { animation-delay: .06s; }
+    .stat:nth-child(3) { animation-delay: .10s; }
+    .stat:nth-child(4) { animation-delay: .14s; }
+    .stat:nth-child(5) { animation-delay: .18s; }
+    .stat:hover { transform: translateY(-2px); }
+    .stat .v { font-size: 20px; font-weight: 800; letter-spacing: -.02em; }
+    .stat .l { font-size: 11px; color: var(--muted); margin-top: 4px; font-weight: 600; text-transform: uppercase; letter-spacing: .03em; }
+    .tabs { display: flex; gap: 6px; flex-wrap: wrap; margin: 12px 0 4px; padding: 4px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 12px; width: fit-content; max-width: 100%; }
+    .tabs button {
+      background: transparent; color: var(--muted); border: 0;
+      border-radius: 8px; padding: 8px 12px; cursor: pointer; font: inherit;
+      font-weight: 650; font-size: 13px;
+      transition: background .2s ease, color .2s ease, transform .2s var(--ease);
+    }
+    .tabs button:hover { color: var(--ink); background: var(--surface); }
+    .tabs button.active {
+      background: var(--accent); color: #fff;
+      box-shadow: 0 4px 12px color-mix(in srgb, var(--accent) 35%, transparent);
+    }
+    .pill { display: inline-block; padding: 3px 9px; border-radius: 999px; font-size: 12px; font-weight: 700; }
+    .pill.ok { background: var(--ok-bg); color: var(--ok); }
+    .pill.err { background: var(--err-bg); color: var(--err); }
+    .pill.warn { background: var(--warn-bg); color: var(--warn); }
+    .alert { padding: 12px 14px; border-radius: 10px; margin-top: 12px; font-size: 13px; animation: cardRise .35s var(--ease); }
+    .alert.ok { background: var(--ok-bg); color: var(--ok); }
+    .alert.err { background: var(--err-bg); color: var(--err); }
+    .chips-filtros { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; min-height: 28px; }
+    .chip-filtro {
+      background: var(--accent-soft); border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--line));
+      border-radius: 999px; padding: 5px 11px; font-size: 12px; color: var(--ink);
+      font-weight: 600; animation: cardRise .3s var(--ease);
+    }
+    .chip-filtro button {
+      border: 0; background: transparent; color: var(--muted); cursor: pointer; margin-left: 4px;
+      font-weight: 800;
+    }
+    .table-wrap {
+      overflow: auto; max-height: 460px; margin-top: 8px;
+      border: 1px solid var(--line); border-radius: 12px;
+      background: var(--surface);
+      box-shadow: var(--shadow);
+    }
+    .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: end; }
+    .field.mini { min-width: 160px; }
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .tool-grid {
+      display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px;
+    }
+    pre {
+      background: var(--pre-bg); color: var(--pre-ink); padding: 14px; border-radius: 10px;
+      overflow: auto; max-height: 360px; font-size: 12px;
+      font-family: "JetBrains Mono", ui-monospace, monospace;
+      border: 1px solid var(--line);
+    }
+    .overlay {
+      display: none; position: fixed; inset: 0; background: var(--overlay-bg);
+      align-items: center; justify-content: center; z-index: 20;
+      backdrop-filter: blur(4px);
+      animation: fadeIn .2s ease;
+    }
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    .overlay.visible { display: flex; }
+    .overlay-box {
+      background: var(--surface); color: var(--ink); border-radius: 16px;
+      padding: 30px 34px; text-align: center; min-width: 280px;
+      border: 1px solid var(--line); box-shadow: var(--shadow-lg);
+      animation: cardRise .35s var(--ease);
+    }
+    .spinner {
+      width: 38px; height: 38px; border: 3px solid var(--line); border-top-color: var(--accent);
+      border-radius: 50%; animation: spin .75s linear infinite; margin: 0 auto 14px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .filtro-aplicado {
+      display: inline-flex; align-items: center; gap: 8px;
+      background: var(--surface); border: 1px dashed var(--line);
+      border-radius: 10px; padding: 8px 12px; font-size: 12px; color: var(--muted);
+      margin: 4px 0 10px; font-family: "JetBrains Mono", monospace;
+    }
+    @media (max-width: 1100px) {
+      .filters { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .tool-grid { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 980px) {
+      .filters { grid-template-columns: 1fr 1fr; }
+      .stats { grid-template-columns: 1fr 1fr; }
+      .layout { flex-direction: column; }
+      nav.steps {
+        width: 100%; flex-direction: row; overflow-x: auto; border-right: 0;
+        border-bottom: 1px solid var(--line); align-items: center;
+      }
+      nav.steps .nav-label, nav.steps .hint { display: none; }
+      nav.steps button.active::before { display: none; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: .01ms !important;
+        transition-duration: .01ms !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <div class="brand-mark" aria-hidden="true">SF</div>
+      <div>
+        <h1>SEFAZ Integração</h1>
+        <div class="sub">Razão GovBR · Pacote · S3</div>
+      </div>
+    </div>
+    <div class="chips">
+      <div class="chip" id="chipGov"><span class="dot"></span>GovBR</div>
+      <div class="chip" id="chipAws"><span class="dot"></span>AWS</div>
+      <button type="button" class="chip-btn" id="btnTestarTudo">Testar APIs</button>
+      <button type="button" class="theme-btn" id="btnTema">Tema escuro</button>
+    </div>
+  </header>
+
+  <div class="layout">
+    <nav class="steps">
+      <div class="nav-label">Navegação</div>
+      <button class="active" data-panel="razao"><span class="ico">☰</span>Razão GovBR</button>
+      <button data-panel="pacote"><span class="ico">▣</span>Pacote do dia</button>
+      <button data-panel="s3"><span class="ico">☁</span>Arquivos no S3</button>
+      <button data-panel="extras"><span class="ico">⚙</span>Ferramentas</button>
+      <p class="hint">Conta e natureza: digite o início do código (quantos dígitos quiser).</p>
+    </nav>
+
+    <main>
+      <section class="panel active" id="panel-razao">
+        <div class="panel-head">
+          <div>
+            <div class="eyebrow">Consulta</div>
+            <h2>Razão GovBR</h2>
+            <p class="lead">Filtros: data + conta contábil + natureza + fato (todos juntos). Totais já refletem o filtro.</p>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="filters">
+            <div class="field">
+              <label>Data início</label>
+              <input type="date" id="govData">
+            </div>
+            <div class="field">
+              <label>Data final</label>
+              <input type="date" id="govDataFim">
+            </div>
+            <div class="field">
+              <label>Conta contábil</label>
+              <input type="text" id="fContaContabil" list="dlContas" placeholder="ex.: 6 · 62 · 6.2.1 (parcial)">
+            </div>
+            <div class="field">
+              <label>Natureza da receita</label>
+              <input type="text" id="fNatureza" list="dlNaturezas" placeholder="ex.: 1 · 11 · 1.1.1 (parcial)">
+            </div>
+            <div class="field">
+              <label>Fato contábil</label>
+              <input type="text" id="fFato" list="dlFatos" placeholder="ex.: 29">
+            </div>
+          </div>
+          <datalist id="dlContas"></datalist>
+          <datalist id="dlNaturezas"></datalist>
+          <datalist id="dlFatos"></datalist>
+
+          <div class="actions">
+            <button class="btn" id="btnGovRazao">Consultar</button>
+            <button class="btn ghost" id="btnLimparFiltros">Limpar filtros</button>
+          </div>
+          <div class="chips-filtros" id="chipsFiltros"></div>
+          <p class="muted" style="margin-top:10px">
+            Os três filtros trabalham juntos (E). Conta e natureza aceitam qualquer quantidade de dígitos —
+            com ou sem pontos (<code>6</code>, <code>62</code>, <code>6.2.1</code>).
+          </p>
+        </div>
+
+        <div id="govRazaoOut"></div>
+      </section>
+
+      <section class="panel" id="panel-pacote">
+        <div class="panel-head">
+          <div>
+            <div class="eyebrow">Rotina diária</div>
+            <h2>Pacote do dia</h2>
+            <p class="lead">Gera MAB, MCR ajustado, Renúncias e Descontos e envia ao S3.</p>
+          </div>
+        </div>
+        <div class="card">
+          <div class="row">
+            <div class="field mini">
+              <label>Dia alvo</label>
+              <input type="date" id="dataAlvo">
+            </div>
+            <button class="btn" id="btnGerar">Gerar e enviar ao S3</button>
+          </div>
+          <div class="rule" id="regraData" style="margin-top:14px;"></div>
+        </div>
+        <div id="pacoteOut"></div>
+      </section>
+
+      <section class="panel" id="panel-s3">
+        <div class="panel-head">
+          <div>
+            <div class="eyebrow">Armazenamento</div>
+            <h2>Arquivos no S3</h2>
+            <p class="lead">Versão vigente (original/RET) e histórico local de envios.</p>
+          </div>
+        </div>
+        <div class="card">
+          <div class="row">
+            <div class="field mini">
+              <label>Data no S3</label>
+              <input type="date" id="dataS3">
+            </div>
+            <button class="btn" id="btnListarS3">Consultar S3</button>
+          </div>
+          <div id="s3Out"></div>
+        </div>
+      </section>
+
+      <section class="panel" id="panel-extras">
+        <div class="panel-head">
+          <div>
+            <div class="eyebrow">Utilitários</div>
+            <h2>Ferramentas</h2>
+            <p class="lead">Downloads avulsos, relatórios e diagnósticos.</p>
+          </div>
+        </div>
+        <div class="tool-grid">
+          <div class="card">
+            <h3>Baixar JSON avulso</h3>
+            <div class="row">
+              <button class="btn ghost" data-dl="/download_mab_json/">MAB</button>
+              <button class="btn ghost" data-dl="/download_mcr_json/">MCR</button>
+              <button class="btn ghost" data-dl="/download_renuncias_json/">Renúncias 91</button>
+              <button class="btn ghost" data-dl="/download_descontos_json/">Descontos 93</button>
+            </div>
+          </div>
+          <div class="card">
+            <h3>Relatórios Excel</h3>
+            <div class="row">
+              <button class="btn ghost" data-rel="mab">Relatório MAB do mês</button>
+              <button class="btn ghost" data-rel="mcr">Relatório MCR do mês</button>
+            </div>
+          </div>
+          <div class="card">
+            <h3>Ajuste MCR × MAB (upload)</h3>
+            <form id="formAjuste">
+              <div class="grid2">
+                <div class="field">
+                  <label>Arquivo MAB JSON</label>
+                  <input type="file" name="mab_json_upload" accept=".json,application/json" required>
+                </div>
+                <div class="field">
+                  <label>Arquivo MCR JSON</label>
+                  <input type="file" name="mcr_json_upload" accept=".json,application/json" required>
+                </div>
+              </div>
+              <div style="margin-top:12px;"><button class="btn secondary" type="submit">Gerar MCR ajustado</button></div>
+            </form>
+            <div id="ajusteOut"></div>
+          </div>
+          <div class="card">
+            <h3>Diagnóstico da pasta Renúncia e Desconto</h3>
+            <button class="btn ghost" id="btnPastas">Testar busca de pastas</button>
+            <div id="pastasOut"></div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div class="overlay" id="overlay">
+    <div class="overlay-box">
+      <div class="spinner"></div>
+      <div id="overlayText">Processando…</div>
+      <div class="muted" id="overlaySub">Aguarde</div>
+    </div>
+  </div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    let loadingTimer = null;
+    let loadingStarted = 0;
+    let govEstado = { aba: "contas_contabeis", dados: null };
+
+    function esc(s) {
+      return String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+    }
+    function fmtMoeda(n) {
+      return Number(n || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+    function temaAtual() {
+      return document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light";
+    }
+    function aplicarTema(tema) {
+      document.documentElement.setAttribute("data-theme", tema);
+      document.documentElement.style.colorScheme = tema === "dark" ? "dark" : "light";
+      localStorage.setItem("sefaz-tema", tema);
+      $("btnTema").textContent = tema === "dark" ? "Tema claro" : "Tema escuro";
+    }
+    function partesData(iso) {
+      if (!iso) return null;
+      const [ano, mes, dia] = iso.split("-").map(Number);
+      if (!ano || !mes || !dia) return null;
+      return { dia, mes, ano, iso };
+    }
+    function fmtBR(p) {
+      return String(p.dia).padStart(2, "0") + "/" + String(p.mes).padStart(2, "0") + "/" + p.ano;
+    }
+    function diaUtilAnterior(iso) {
+      const d = new Date(iso + "T12:00:00");
+      d.setDate(d.getDate() - 1);
+      while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() - 1);
+      return d.toISOString().slice(0, 10);
+    }
+    function atualizarRegra() {
+      const p = partesData($("dataAlvo").value);
+      if (!p) {
+        $("regraData").innerHTML = "Escolha o <strong>dia alvo</strong>.";
+        return;
+      }
+      const mab = partesData(diaUtilAnterior(p.iso));
+      $("regraData").innerHTML =
+        "Dia alvo <strong>" + fmtBR(p) + "</strong>. MAB lê <strong>" + fmtBR(mab) +
+        "</strong>. MCR/Renúncias/Descontos usam o dia alvo.";
+      $("dataS3").value = p.iso;
+    }
+    function mostrarLoading(texto) {
+      $("overlayText").textContent = texto || "Processando…";
+      $("overlaySub").textContent = "0s";
+      $("overlay").classList.add("visible");
+      loadingStarted = Date.now();
+      if (loadingTimer) clearInterval(loadingTimer);
+      loadingTimer = setInterval(() => {
+        $("overlaySub").textContent = Math.floor((Date.now() - loadingStarted) / 1000) + "s";
+      }, 400);
+    }
+    function ocultarLoading() {
+      $("overlay").classList.remove("visible");
+      if (loadingTimer) { clearInterval(loadingTimer); loadingTimer = null; }
+    }
+    function setChip(id, ok, detalhe) {
+      const labels = { chipGov: "GovBR", chipAws: "AWS" };
+      const el = $(id);
+      el.classList.remove("ok", "err", "warn");
+      el.classList.add(ok === true ? "ok" : ok === false ? "err" : "warn");
+      el.innerHTML = '<span class="dot"></span>' + labels[id] + (detalhe ? " · " + detalhe : "");
+    }
+    function jsonBox(obj) {
+      return "<pre>" + esc(JSON.stringify(obj, null, 2)) + "</pre>";
+    }
+    async function getJson(url) {
+      const resp = await fetch(url);
+      const text = await resp.text();
+      try { return JSON.parse(text); } catch (e) { throw new Error("Resposta inválida: " + text.slice(0, 200)); }
+    }
+    function abrirPainel(nome) {
+      document.querySelectorAll(".panel").forEach((p) => {
+        p.classList.remove("active");
+        p.style.animation = "none";
+      });
+      document.querySelectorAll("nav.steps button").forEach((b) => b.classList.remove("active"));
+      const panel = $("panel-" + nome);
+      // força reflow para reiniciar a animação ao trocar de aba
+      void panel.offsetWidth;
+      panel.style.animation = "";
+      panel.classList.add("active");
+      const btn = document.querySelector('nav.steps button[data-panel="' + nome + '"]');
+      if (btn) btn.classList.add("active");
+      location.hash = nome;
+    }
+    document.querySelectorAll("nav.steps button").forEach((btn) => {
+      btn.addEventListener("click", () => abrirPainel(btn.getAttribute("data-panel")));
+    });
+
+    function filtrosAtivos() {
+      return {
+        conta_contabil: $("fContaContabil").value.trim(),
+        natureza: $("fNatureza").value.trim(),
+        fato: $("fFato").value.trim(),
+      };
+    }
+    function limparFiltros() {
+      $("fContaContabil").value = "";
+      $("fNatureza").value = "";
+      $("fFato").value = "";
+      renderChips();
+    }
+    function renderChips() {
+      const f = filtrosAtivos();
+      const labels = { conta_contabil: "Conta", natureza: "Natureza", fato: "Fato" };
+      const html = Object.keys(labels).filter((k) => f[k]).map((k) =>
+        '<span class="chip-filtro">' + labels[k] + ": <strong>" + esc(f[k]) +
+        '</strong><button type="button" data-clear="' + k + '">×</button></span>'
+      ).join("");
+      $("chipsFiltros").innerHTML = html || '<span class="muted">Só datas — sem filtro de conta/natureza/fato.</span>';
+      $("chipsFiltros").querySelectorAll("[data-clear]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const map = { conta_contabil: "fContaContabil", natureza: "fNatureza", fato: "fFato" };
+          const id = map[btn.getAttribute("data-clear")];
+          if (id) $(id).value = "";
+          renderChips();
+        });
+      });
+    }
+    ["fContaContabil","fNatureza","fFato"].forEach((id) => {
+      $(id).addEventListener("change", renderChips);
+      $(id).addEventListener("input", renderChips);
+    });
+
+    function fillDatalist(id, values) {
+      $(id).innerHTML = (values || []).map((v) => '<option value="' + esc(v) + '">').join("");
+    }
+    function atualizarOpcoes(op) {
+      if (!op) return;
+      fillDatalist("dlContas", op.contas_contabeis);
+      fillDatalist("dlNaturezas", op.naturezas);
+      fillDatalist("dlFatos", op.fatos);
+    }
+
+    async function consultarGov(extra) {
+      extra = extra || {};
+      Object.keys(extra).forEach((k) => {
+        const map = { conta_contabil: "fContaContabil", natureza: "fNatureza", fato: "fFato" };
+        if (map[k] && extra[k] != null) $(map[k]).value = extra[k];
+      });
+      renderChips();
+      const pIni = partesData($("govData").value);
+      const pFim = partesData($("govDataFim").value || (pIni && pIni.iso));
+      if (!pIni || !pFim) {
+        $("govRazaoOut").innerHTML = "<div class='alert err'>Informe as datas.</div>";
+        return;
+      }
+      mostrarLoading("Consultando razão GovBR");
+      try {
+        const f = filtrosAtivos();
+        const qs = new URLSearchParams({
+          data_inicio: pIni.iso,
+          data_final: pFim.iso,
+          limite: "200",
+        });
+        if (f.conta_contabil) qs.set("conta_contabil", f.conta_contabil);
+        if (f.natureza) qs.set("natureza", f.natureza);
+        if (f.fato) qs.set("fato", f.fato);
+        const d = await getJson("/testar_gov_razao/?" + qs.toString());
+        if (!d.sucesso) {
+          $("govRazaoOut").innerHTML = "<div class='alert err'>" + esc(d.mensagem || "Falha") + "</div>";
+          return;
+        }
+        govEstado.dados = d;
+        if (extra.irPara) govEstado.aba = extra.irPara;
+        atualizarOpcoes(d.opcoes);
+        renderGov();
+      } catch (e) {
+        $("govRazaoOut").innerHTML = "<div class='alert err'>" + esc(e.message) + "</div>";
+      } finally {
+        ocultarLoading();
+      }
+    }
+
+    function renderGov() {
+      const d = govEstado.dados;
+      if (!d) return;
+      const aba = govEstado.aba;
+      $("govRazaoOut").innerHTML =
+        '<div class="stats">' +
+          '<div class="stat"><div class="v">' + (d.total_movimentos || 0) + '</div><div class="l">No filtro / ' + (d.total_bruto || 0) + ' bruto</div></div>' +
+          '<div class="stat"><div class="v">' + (d.total_contas || 0) + '</div><div class="l">Contas contábeis</div></div>' +
+          '<div class="stat"><div class="v">' + (d.total_naturezas || 0) + '</div><div class="l">Naturezas</div></div>' +
+          '<div class="stat"><div class="v">' + fmtMoeda(d.total_debito) + '</div><div class="l">Débito</div></div>' +
+          '<div class="stat"><div class="v">' + fmtMoeda(d.total_valor) + '</div><div class="l">Saldo (D − C)</div></div>' +
+        '</div>' +
+        '<p class="filtro-aplicado">filtro · ' + esc(JSON.stringify(d.filtro || {})) + '</p>' +
+        '<div class="tabs">' +
+          tabBtn("contas_contabeis", "Contas contábeis") +
+          tabBtn("naturezas", "Naturezas / tributos") +
+          tabBtn("deducoes", "Deduções") +
+          tabBtn("fatos", "Fatos") +
+          tabBtn("receitas", "Códigos receita") +
+          tabBtn("bancos", "Bancos") +
+          tabBtn("lancamentos", "Lançamentos") +
+        '</div><div id="govAbaBody"></div>';
+
+      $("govRazaoOut").querySelectorAll(".tabs button").forEach((btn) => {
+        btn.addEventListener("click", () => { govEstado.aba = btn.getAttribute("data-aba"); renderGov(); });
+      });
+
+      const body = $("govAbaBody");
+      if (aba === "contas_contabeis") {
+        body.innerHTML = tabelaAgg(d.por_conta_contabil || [], "Conta contábil");
+        bindAgg(body, (v) => { $("fContaContabil").value = v; consultarGov({ irPara: "lancamentos" }); });
+      } else if (aba === "naturezas") {
+        body.innerHTML = tabelaAgg(d.por_natureza || d.contas || [], "Natureza");
+        bindAgg(body, (v) => { $("fNatureza").value = v; consultarGov({ irPara: "lancamentos" }); });
+      } else if (aba === "deducoes") {
+        body.innerHTML = "<div class='table-wrap'><table><thead><tr><th>Tipo</th><th class='num'>Lanç.</th><th class='num'>Valor</th></tr></thead><tbody>" +
+          (d.por_tipo_deducao || []).map((t) =>
+            "<tr><td>" + esc(t.tipo || t.chave) +
+            '</td><td class="num">' + t.lancamentos + '</td><td class="num">' + fmtMoeda(t.valor) + "</td></tr>"
+          ).join("") + "</tbody></table></div>";
+      } else if (aba === "fatos") {
+        body.innerHTML = "<div class='table-wrap'><table><thead><tr><th>Fato</th><th class='num'>Lanç.</th><th class='num'>Valor</th></tr></thead><tbody>" +
+          (d.por_fato || []).map((f) =>
+            '<tr class="clickable" data-v="' + esc(f.codigo || f.fato || f.chave) + '"><td>' + esc(f.fato || f.chave) +
+            '</td><td class="num">' + f.lancamentos + '</td><td class="num">' + fmtMoeda(f.valor) + "</td></tr>"
+          ).join("") + "</tbody></table></div><p class='muted'>Clique na linha para filtrar.</p>";
+        bindAgg(body, (v) => { $("fFato").value = v; consultarGov({ irPara: "lancamentos" }); });
+      } else if (aba === "receitas") {
+        body.innerHTML = tabelaAgg(d.por_receita || [], "Receita");
+      } else if (aba === "bancos") {
+        body.innerHTML = tabelaAgg(d.por_banco || [], "Banco");
+      } else {
+        const rows = d.lancamentos || [];
+        body.innerHTML = "<p class='muted'>" + (d.lancamentos_filtrados || 0) + " no filtro · mostrando " + rows.length + "</p>" +
+          '<div class="table-wrap"><table><thead><tr><th>Data</th><th>Conta contábil</th><th>Natureza</th><th>D/C</th><th class="num">Valor</th><th>Dedução</th><th>Fato</th><th>Histórico</th></tr></thead><tbody>' +
+          rows.map((l) =>
+            "<tr><td>" + esc(l.data) + "</td><td>" + esc(l.conta_contabil) + "<br><span class='muted'>" + esc(l.desc_conta) +
+            "</span></td><td>" + esc(l.natureza) + "<br><span class='muted'>" + esc(l.desc_natureza) +
+            "</span></td><td>" + esc(l.debitoCredito) + '</td><td class="num">' + fmtMoeda(l.valor) +
+            "</td><td>" + esc(l.tipoDeducao) + "</td><td>" + esc(l.fatoContabil) + "</td><td>" + esc(l.historico) + "</td></tr>"
+          ).join("") + "</tbody></table></div>";
+      }
+    }
+    function tabBtn(id, label) {
+      return '<button type="button" data-aba="' + id + '"' + (govEstado.aba === id ? ' class="active"' : "") + ">" + label + "</button>";
+    }
+    function tabelaAgg(lista, titulo) {
+      return '<div class="table-wrap"><table><thead><tr><th>' + titulo + '</th><th>Descrição</th><th class="num">Lanç.</th><th class="num">Débito</th><th class="num">Crédito</th><th class="num">Saldo/Valor</th></tr></thead><tbody>' +
+        (lista || []).map((c) => {
+          const chave = c.conta_contabil || c.natureza || c.receita || c.banco || c.chave || c.conta || "";
+          return '<tr class="clickable" data-v="' + esc(chave) + '"><td>' + esc(chave) + "</td><td>" + esc(c.descricao || "") +
+            '</td><td class="num">' + (c.lancamentos || 0) + '</td><td class="num">' + fmtMoeda(c.debito) +
+            '</td><td class="num">' + fmtMoeda(c.credito) + '</td><td class="num">' + fmtMoeda(c.saldo != null ? c.saldo : c.valor) + "</td></tr>";
+        }).join("") + "</tbody></table></div><p class='muted'>Clique na linha para filtrar e abrir os lançamentos.</p>";
+    }
+    function bindAgg(body, fn) {
+      body.querySelectorAll("tr.clickable").forEach((tr) => tr.addEventListener("click", () => fn(tr.getAttribute("data-v"))));
+    }
+
+    $("btnGovRazao").addEventListener("click", () => consultarGov());
+    $("btnLimparFiltros").addEventListener("click", () => { limparFiltros(); });
+
+    $("btnTestarTudo").addEventListener("click", async () => {
+      mostrarLoading("Testando APIs");
+      try {
+        const d = await getJson("/status_fontes/");
+        setChip("chipGov", !!(d.gov && d.gov.sucesso), d.gov && d.gov.sucesso ? "ok" : "falhou");
+        setChip("chipAws", !!(d.aws && d.aws.sucesso), d.aws && d.aws.sucesso ? "ok" : "falhou");
+      } catch (e) {
+        setChip("chipGov", false, "erro");
+        setChip("chipAws", false, "erro");
+      } finally {
+        ocultarLoading();
+      }
+    });
+
+    $("dataAlvo").addEventListener("change", atualizarRegra);
+    $("btnGerar").addEventListener("click", async () => {
+      const p = partesData($("dataAlvo").value);
+      if (!p) { $("pacoteOut").innerHTML = "<div class='alert err'>Informe o dia alvo.</div>"; return; }
+      mostrarLoading("Gerando pacote e enviando ao S3");
+      try {
+        const d = await getJson("/gerar_pacote_local/?dia=" + p.dia + "&mes=" + p.mes + "&ano=" + p.ano);
+        const bateu = d.conferencia_mab_mcr && d.conferencia_mab_mcr.bateu;
+        const envios = (d.envio_s3 && d.envio_s3.arquivos) || [];
+        $("pacoteOut").innerHTML =
+          "<div class='card'><h3>Resultado</h3>" +
+          "<p><span class='pill " + (d.sucesso ? "ok" : "err") + "'>" + (d.sucesso ? "pacote ok" : "com erros") + "</span> " +
+          "<span class='pill " + (bateu ? "ok" : "warn") + "'>MCR × MAB " + (bateu ? "bateu" : "não bateu") + "</span></p>" +
+          "<table><thead><tr><th>Tipo</th><th>Registros</th><th>S3</th></tr></thead><tbody>" +
+          ["mab","mcr","renuncias","descontos"].map((k) => {
+            const item = envios.find((e) => String(e.tipo || "").toUpperCase() === k.toUpperCase() ||
+              (k === "renuncias" && String(e.tipo).toUpperCase() === "RENUNCIAS") ||
+              (k === "descontos" && String(e.tipo).toUpperCase() === "DESCONTOS"));
+            return "<tr><td>" + k.toUpperCase() + "</td><td>" + ((d.contagens && d.contagens[k]) != null ? d.contagens[k] : "—") +
+              "</td><td>" + (item ? esc(item.file_name) + (item.sucesso ? " · enviado" : " · falhou") : "—") + "</td></tr>";
+          }).join("") + "</tbody></table>" +
+          (d.erros && d.erros.length ? "<div class='alert err'>" + d.erros.map(esc).join("<br>") + "</div>" : "") +
+          "</div>";
+        $("dataS3").value = p.iso;
+        abrirPainel("s3");
+        await listarS3(true);
+      } catch (e) {
+        $("pacoteOut").innerHTML = "<div class='alert err'>" + esc(e.message) + "</div>";
+      } finally {
+        ocultarLoading();
+      }
+    });
+
+    async function listarS3(silencioso) {
+      const p = partesData($("dataS3").value || $("dataAlvo").value);
+      if (!p) { $("s3Out").innerHTML = "<div class='alert err'>Informe a data.</div>"; return; }
+      if (!silencioso) mostrarLoading("Consultando S3");
+      try {
+        const d = await getJson("/api/listar-arquivos-remoto?data=" + encodeURIComponent(fmtBR(p)));
+        if (!d.sucesso) {
+          $("s3Out").innerHTML = "<div class='alert err'>" + esc(d.mensagem || "Falha") + "</div>";
+          return;
+        }
+        const versoes = d.versoes || d.tipos || [];
+        const historico = d.historico_local || [];
+        $("s3Out").innerHTML =
+          '<div class="stats" style="grid-template-columns:repeat(4,minmax(0,1fr))">' +
+            '<div class="stat"><div class="v">' + (d.presentes || 0) + "/" + (d.total || versoes.length) + '</div><div class="l">Presentes</div></div>' +
+            '<div class="stat"><div class="v">' + (d.retificados || 0) + '</div><div class="l">Com RET</div></div>' +
+            '<div class="stat"><div class="v">' + historico.length + '</div><div class="l">Histórico local</div></div>' +
+            '<div class="stat"><div class="v">' + esc(d.data || fmtBR(p)) + '</div><div class="l">Data</div></div>' +
+          "</div>" +
+          "<table><thead><tr><th>Tipo</th><th>Versão</th><th>Arquivo</th><th>Status</th><th>Criado</th></tr></thead><tbody>" +
+          versoes.map((t) => {
+            const ok = !!t.presente;
+            const versao = t.versao || (t.retificacao > 0 ? ("RET" + t.retificacao) : (ok ? "original" : "ausente"));
+            return "<tr><td>" + esc(t.tipo) + "</td><td><span class='pill " + (t.retificacao > 0 ? "warn" : (ok ? "ok" : "warn")) + "'>" +
+              esc(versao) + "</span></td><td>" + esc(t.file_name || "—") + "</td><td>" + esc(t.status || "") +
+              "</td><td>" + esc(t.created_at || "—") + "</td></tr>";
+          }).join("") + "</tbody></table>" +
+          (historico.length
+            ? "<h3 style='margin-top:18px'>Histórico local</h3><table><thead><tr><th>Tipo</th><th>Versão</th><th>Arquivo</th><th>Upload</th></tr></thead><tbody>" +
+              historico.map((h) => "<tr><td>" + esc(h.tipo) + "</td><td>" + esc(h.versao) + "</td><td>" + esc(h.file_name) +
+                "</td><td>" + esc(h.data_upload || "—") + "</td></tr>").join("") + "</tbody></table>"
+            : "<p class='muted' style='margin-top:12px'>Sem histórico local nesta data.</p>");
+      } catch (e) {
+        $("s3Out").innerHTML = "<div class='alert err'>" + esc(e.message) + "</div>";
+      } finally {
+        if (!silencioso) ocultarLoading();
+      }
+    }
+    $("btnListarS3").addEventListener("click", () => listarS3(false));
+
+    async function baixar(url, nome) {
+      const p = partesData($("dataAlvo").value || $("govData").value);
+      if (!p) { alert("Informe uma data no pacote ou na razão."); return; }
+      mostrarLoading("Baixando " + nome);
+      try {
+        const resp = await fetch(url + "?dia=" + p.dia + "&mes=" + p.mes + "&ano=" + p.ano);
+        if (!resp.ok) throw new Error("HTTP " + resp.status);
+        const blob = await resp.blob();
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = nome + "_" + p.iso + ".json";
+        a.click();
+        URL.revokeObjectURL(a.href);
+      } catch (e) { alert(e.message); }
+      finally { ocultarLoading(); }
+    }
+    document.querySelectorAll("[data-dl]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const rota = btn.getAttribute("data-dl");
+        baixar(rota, rota.replace(/\//g, "").replace("download_", "").replace("_json", ""));
+      });
+    });
+    document.querySelectorAll("[data-rel]").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const p = partesData($("dataAlvo").value || $("govData").value);
+        if (!p) { alert("Informe uma data."); return; }
+        const tipo = btn.getAttribute("data-rel");
+        mostrarLoading("Gerando relatório");
+        try {
+          const resp = await fetch("/gerar_relatorio_" + tipo + "/?mes=" + p.mes + "&ano=" + p.ano);
+          if (!resp.ok) throw new Error("HTTP " + resp.status);
+          const blob = await resp.blob();
+          const a = document.createElement("a");
+          a.href = URL.createObjectURL(blob);
+          a.download = "relatorio_" + tipo + "_" + p.mes + "_" + p.ano + ".xlsx";
+          a.click();
+          URL.revokeObjectURL(a.href);
+        } catch (e) { alert(e.message); }
+        finally { ocultarLoading(); }
+      });
+    });
+    $("formAjuste").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      mostrarLoading("Ajustando MCR");
+      try {
+        const resp = await fetch("/ajustar_mcr_por_mab_json/", { method: "POST", body: new FormData($("formAjuste")) });
+        $("ajusteOut").innerHTML = jsonBox(await resp.json());
+      } catch (err) {
+        $("ajusteOut").innerHTML = "<div class='alert err'>" + esc(err.message) + "</div>";
+      } finally { ocultarLoading(); }
+    });
+    $("btnPastas").addEventListener("click", async () => {
+      mostrarLoading("Buscando pastas");
+      try { $("pastasOut").innerHTML = jsonBox(await getJson("/testar_busca_pastas/")); }
+      catch (e) { $("pastasOut").innerHTML = "<div class='alert err'>" + esc(e.message) + "</div>"; }
+      finally { ocultarLoading(); }
+    });
+
+    (function init() {
+      aplicarTema(localStorage.getItem("sefaz-tema") || "light");
+      $("btnTema").addEventListener("click", () => aplicarTema(temaAtual() === "dark" ? "light" : "dark"));
+      const iso = new Date().toISOString().slice(0, 10);
+      $("govData").value = iso;
+      $("govDataFim").value = iso;
+      $("dataAlvo").value = iso;
+      $("dataS3").value = iso;
+      atualizarRegra();
+      renderChips();
+      const hash = (location.hash || "").replace("#", "");
+      if (hash && $("panel-" + hash)) abrirPainel(hash);
+      else abrirPainel("razao");
+      getJson("/status_fontes/").then((d) => {
+        setChip("chipGov", !!(d.gov && d.gov.sucesso), d.gov && d.gov.sucesso ? "ok" : "falhou");
+        setChip("chipAws", !!(d.aws && d.aws.sucesso), d.aws && d.aws.sucesso ? "ok" : "falhou");
+      }).catch(() => {
+        setChip("chipGov", false, "erro");
+        setChip("chipAws", false, "erro");
+      });
+    })();
+  </script>
+</body>
+</html>

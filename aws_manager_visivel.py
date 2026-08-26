@@ -1,6 +1,7 @@
 import requests
 import json
 import os
+import re
 from datetime import datetime
 from typing import Dict, List, Optional, Any
 import hashlib
@@ -13,19 +14,21 @@ carregar_env()
 
 class AWSManagerVisivel:
     def __init__(self, api_key: str = None):
+        carregar_env()
         self.AWS_API_URL = os.getenv(
             "API_URL",
             "https://v60yr1ma4f.execute-api.sa-east-1.amazonaws.com/prod/upload-arquivos",
         )
-        self.api_key = api_key or os.getenv("AWS_API_KEY", "")
+        self.api_key = (api_key or os.getenv("AWS_API_KEY") or "").strip()
         self.headers = {
-            "x-api-key": self.api_key,
             "Content-Type": "application/json"
         }
         self.headers_get = {
-            "x-api-key": self.api_key,
             "Accept": "application/json"
         }
+        if self.api_key:
+            self.headers["x-api-key"] = self.api_key
+            self.headers_get["x-api-key"] = self.api_key
 
     def _api_base_prod(self) -> str:
         return self.AWS_API_URL.rsplit("/", 1)[0]
@@ -56,13 +59,67 @@ class AWSManagerVisivel:
 
             dados = response.json()
             tipos = dados.get("tipos", []) if isinstance(dados, dict) else []
+            versoes = []
+            for item in tipos:
+                n = 0
+                try:
+                    n = int(item.get("retificacao") if item.get("retificacao") is not None else 0)
+                except (TypeError, ValueError):
+                    n = 0
+                nome = str(item.get("file_name") or "")
+                match_ret = re.search(r"-RET(\d+)", nome, re.IGNORECASE)
+                if match_ret:
+                    n = max(n, int(match_ret.group(1)))
+                if not item.get("presente"):
+                    rotulo = "ausente"
+                elif n <= 0:
+                    rotulo = "original"
+                else:
+                    rotulo = f"RET{n}"
+                versoes.append({
+                    "tipo": item.get("tipo"),
+                    "obrigatorio": item.get("obrigatorio"),
+                    "presente": bool(item.get("presente")),
+                    "file_name": nome or None,
+                    "status": item.get("status"),
+                    "created_at": item.get("created_at"),
+                    "retificacao": n,
+                    "versao": rotulo,
+                })
+
+            historico_local = []
+            data_ref = str(dados.get("data", data_param) if isinstance(dados, dict) else data_param)
+            cache = self._ler_cache()
+            for pasta in (cache.get("pastas") or {}).values():
+                for arq in pasta.get("arquivos") or []:
+                    filtro = str(arq.get("data_filtro") or arq.get("dados", {}).get("data_filtro") or "")
+                    if filtro.replace("-", "/") != data_ref.replace("-", "/"):
+                        continue
+                    nome = str(arq.get("nome_arquivo") or "")
+                    n = 0
+                    match_ret = re.search(r"-RET(\d+)", nome, re.IGNORECASE)
+                    if match_ret:
+                        n = int(match_ret.group(1))
+                    historico_local.append({
+                        "tipo": arq.get("tipo") or pasta.get("nome"),
+                        "file_name": nome,
+                        "versao": "original" if n <= 0 else f"RET{n}",
+                        "retificacao": n,
+                        "origem": "indice_local",
+                        "data_upload": arq.get("data_upload"),
+                        "total_registros": arq.get("total_registros"),
+                    })
+
             return {
                 "sucesso": True,
                 "status_code": response.status_code,
-                "data": dados.get("data", data_param),
+                "data": data_ref,
                 "tipos": tipos,
+                "versoes": versoes,
+                "historico_local": historico_local,
                 "total": len(tipos),
                 "presentes": sum(1 for t in tipos if t.get("presente")),
+                "retificados": sum(1 for v in versoes if v.get("retificacao", 0) > 0),
                 "dados": dados,
             }
         except Exception as e:
@@ -116,6 +173,13 @@ class AWSManagerVisivel:
     def testar_conexao(self) -> Dict[str, Any]:
         """Valida chave e conectividade via GET /listar-arquivos (não envia arquivos)."""
         try:
+            if not self.api_key:
+                return {
+                    "sucesso": False,
+                    "status_code": None,
+                    "mensagem": "AWS_API_KEY vazia no .env. Preencha a chave e reinicie o servidor.",
+                    "dados": None,
+                }
             hoje = datetime.now().strftime("%d/%m/%Y")
             resultado = self.listar_arquivos_por_data(hoje)
             status = resultado.get("status_code")

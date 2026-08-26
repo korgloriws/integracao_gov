@@ -13,7 +13,13 @@ def carregar_env() -> None:
             if not linha or linha.startswith("#") or "=" not in linha:
                 continue
             chave, valor = linha.split("=", 1)
-            os.environ.setdefault(chave.strip(), valor.strip().strip('"').strip("'"))
+            chave = chave.strip()
+            valor = valor.strip().strip('"').strip("'")
+            if not chave or not valor:
+                continue
+            # Linha vazia no .env não pode "prender" a variável como string vazia
+            if not (os.environ.get(chave) or "").strip():
+                os.environ[chave] = valor
 
 
 def sefaz_path(*partes: str) -> str:

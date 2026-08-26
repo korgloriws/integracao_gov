@@ -8,6 +8,7 @@ import pandas as pd
 from relatorios import gerar_relatorio_mab, gerar_relatorio_mcr
 from aws_interface import router as aws_router
 from carregar_env import carregar_env, sefaz_path
+from gov_api import get_gov_client
 
 carregar_env()
 
@@ -23,12 +24,7 @@ app.include_router(aws_router)
 
 def corrigir_caminho(caminho: str) -> str:
 
-    """
-    Corrige caminho no Windows para suportar caminhos longos.
 
-    - Drive letter:      C:\\pasta\\arquivo  -> \\\\?\\C:\\pasta\\arquivo
-    - UNC (rede):       \\\\srv\\share\\...  -> \\\\?\\UNC\\srv\\share\\...
-    """
     if os.name != "nt" or not caminho:
         return caminho
 
@@ -169,6 +165,79 @@ def testar_busca_pastas():
         "teste_busca_pastas": resultados_teste,
         "caminhos_deducoes_gerados": gerar_caminhos_deducoes_dinamicos()
     }
+
+
+@app.get("/testar_gov_api/")
+def testar_gov_api():
+    """Autentica na API GovBR (Cidade360) e confirma o JWT."""
+    return get_gov_client().autenticar(forcar=True)
+
+
+@app.get("/testar_gov_razao/")
+def testar_gov_razao(
+    data_inicio: str = Query(..., description="Data inicial yyyy-mm-dd ou dd/mm/aaaa"),
+    data_final: str = Query(..., description="Data final yyyy-mm-dd ou dd/mm/aaaa"),
+    fato_contabil: str | None = Query(None, description="Código numérico do fato para o path da API (opcional)"),
+    fato: str | None = Query(None, description="Fato contábil (texto ou código, filtro local)"),
+    conta: str | None = Query(None, description="Alias de natureza (compatibilidade)"),
+    natureza: str | None = Query(None, description="Natureza da receita (prefixo por padrão)"),
+    natureza_modo: str | None = Query("prefixo", description="prefixo|contem|exato|codigo"),
+    conta_contabil: str | None = Query(None, description="Conta contábil nível (ex.: 6 ou 6.2.1)"),
+    conta_contabil_modo: str | None = Query("prefixo", description="prefixo|contem|exato|codigo"),
+    contra_partida: str | None = Query(None, description="Contra-partida contábil"),
+    tipo_deducao: str | None = Query(None, description="91, 93, 96, 00 ou texto"),
+    receita: str | None = Query(None, description="Código de receita/tributo"),
+    fonte_recurso: str | None = Query(None, description="Fonte de recurso"),
+    banco: str | None = Query(None, description="Código ou nome do banco"),
+    movimento: str | None = Query(None, description="Original ou Estorno"),
+    debito_credito: str | None = Query(None, description="D ou C"),
+    desc_natureza: str | None = Query(None, description="Texto na descrição da natureza"),
+    desc_conta: str | None = Query(None, description="Texto na descrição da conta"),
+    historico: str | None = Query(None, description="Texto no histórico"),
+    busca: str | None = Query(None, description="Busca livre"),
+    valor_min: float | None = Query(None),
+    valor_max: float | None = Query(None),
+    preview: int = Query(0, ge=0, le=20),
+    limite: int = Query(120, ge=0, le=500),
+):
+    """Consulta razão contábil com filtros combináveis para navegação na interface."""
+    fato_api = None
+    if fato_contabil and str(fato_contabil).strip():
+        try:
+            fato_api = int(str(fato_contabil).strip())
+        except ValueError:
+            # Se não for número, trata como filtro texto de fato.
+            fato = fato or fato_contabil
+
+    filtros = {
+        "fato": fato,
+        "natureza": natureza or conta,
+        "natureza_modo": natureza_modo,
+        "conta_contabil": conta_contabil,
+        "conta_contabil_modo": conta_contabil_modo,
+        "contra_partida": contra_partida,
+        "tipo_deducao": tipo_deducao,
+        "receita": receita,
+        "fonte_recurso": fonte_recurso,
+        "banco": banco,
+        "movimento": movimento,
+        "debito_credito": debito_credito,
+        "desc_natureza": desc_natureza,
+        "desc_conta": desc_conta,
+        "historico": historico,
+        "busca": busca,
+        "valor_min": valor_min,
+        "valor_max": valor_max,
+    }
+    return get_gov_client().consultar_razao(
+        data_inicio=data_inicio,
+        data_final=data_final,
+        fato_contabil=fato_api,
+        preview=preview,
+        limite_lancamentos=limite,
+        filtros=filtros,
+    )
+
 
 def calcular_dia_util_anterior(dia: int, mes: int, ano: int = 2026) -> str:
 
@@ -1371,465 +1440,30 @@ def processar_pasta_deducoes(caminho_pasta: str, ano: int = 2026) -> list:
 
 #####################
 
+@app.get("/status_fontes/")
+def status_fontes():
+    from aws_manager_visivel import AWSManagerVisivel
+    gov = get_gov_client().autenticar()
+    aws = AWSManagerVisivel().testar_conexao()
+    return {
+        "gov": {
+            "sucesso": bool(gov.get("sucesso")),
+            "mensagem": gov.get("mensagem"),
+            "identificador": gov.get("identificador"),
+        },
+        "aws": {
+            "sucesso": bool(aws.get("sucesso")),
+            "mensagem": aws.get("mensagem"),
+            "status_code": aws.get("status_code"),
+        },
+    }
+
+
 @app.get("/", response_class=HTMLResponse)
 def home():
-    html_content = """
-    <html>
-    <head>
-        <meta charset="utf-8">
-        <title>API MAB, MCR & Desconto/Renúncia</title>
-        <style>
-            body {
-                margin: 0;
-                font-family: Arial, sans-serif;
-                display: flex;
-                flex-direction: column;
-                height: 100vh;
-                background-color: #f4f4f4;
-            }
-            .app-nav {
-                background: #1f1f1f;
-                padding: 8px 16px;
-                display: flex;
-                gap: 8px;
-                align-items: center;
-                flex-shrink: 0;
-            }
-            .app-nav a {
-                color: #ccc;
-                text-decoration: none;
-                padding: 8px 14px;
-                border-radius: 6px;
-                font-weight: bold;
-                font-size: 14px;
-            }
-            .app-nav a:hover {
-                color: #fff;
-                background: #444;
-            }
-            .app-nav a.active {
-                color: #fff;
-                background: #ff6600;
-            }
-            .layout {
-                display: flex;
-                flex: 1;
-                min-height: 0;
-            }
-            .sidebar {
-                width: 250px;
-                background-color: #333;
-                color: #fff;
-                padding: 20px;
-                box-sizing: border-box;
-                overflow-y: auto;
-            }
-            .sidebar h1 {
-                margin: 0 0 20px 0;
-                font-size: 24px;
-                border-bottom: 2px solid #ff6600;
-                padding-bottom: 10px;
-            }
-            .sidebar h2 {
-                font-size: 18px;
-                margin-top: 20px;
-                border-bottom: 1px solid #444;
-                padding-bottom: 5px;
-            }
-            .sidebar h3 {
-                font-size: 16px;
-                margin: 10px 0 5px 0;
-            }
-            .sidebar a {
-                color: #ff6600;
-                text-decoration: none;
-                display: block;
-                margin-bottom: 10px;
-            }
-            .sidebar a:hover {
-                color: #fff;
-            }
-            .sidebar form {
-                margin-bottom: 15px;
-            }
-            .sidebar label {
-                display: block;
-                margin-bottom: 5px;
-                font-size: 14px;
-            }
-            .sidebar input[type="number"] {
-                width: 100%;
-                padding: 5px;
-                margin-bottom: 5px;
-                box-sizing: border-box;
-            }
-            .sidebar input[type="submit"] {
-                width: 100%;
-                padding: 5px;
-                background: #ff6600;
-                border: none;
-                color: #fff;
-                cursor: pointer;
-            }
-            .sidebar input[type="submit"]:hover {
-                background: #e65c00;
-            }
-            .content {
-                flex-grow: 1;
-                background-color: #fff;
-                padding: 20px;
-                box-sizing: border-box;
-                overflow-y: auto;
-                position: relative;
-            }
-            iframe {
-                width: 100%;
-                height: 100%;
-                border: none;
-            }
-            .loading-bar {
-                display: none;
-                position: sticky;
-                top: 0;
-                z-index: 5;
-                align-items: center;
-                gap: 10px;
-                margin: 0 0 15px 0;
-                padding: 10px;
-                background: #444;
-                border: 1px solid #ff6600;
-                border-radius: 5px;
-                font-size: 13px;
-            }
-            .loading-bar.visible {
-                display: flex;
-            }
-            .loading-overlay {
-                display: none;
-                position: absolute;
-                inset: 0;
-                background: rgba(255, 255, 255, 0.92);
-                z-index: 4;
-                align-items: center;
-                justify-content: center;
-                flex-direction: column;
-                gap: 14px;
-            }
-            .loading-overlay.visible {
-                display: flex;
-            }
-            .spinner {
-                width: 18px;
-                height: 18px;
-                border: 3px solid #666;
-                border-top-color: #ff6600;
-                border-radius: 50%;
-                animation: spin 0.8s linear infinite;
-                flex-shrink: 0;
-            }
-            .spinner-lg {
-                width: 42px;
-                height: 42px;
-                border: 4px solid #ddd;
-                border-top-color: #ff6600;
-                border-radius: 50%;
-                animation: spin 0.8s linear infinite;
-            }
-            @keyframes spin {
-                to { transform: rotate(360deg); }
-            }
-            .loading-overlay p {
-                margin: 0;
-                color: #333;
-                font-size: 16px;
-            }
-            .loading-overlay .loading-sub {
-                color: #888;
-                font-size: 13px;
-            }
-        </style>
-    </head>
-    <body>
-        <nav class="app-nav">
-            <a href="/" class="active">Processamento</a>
-            <a href="/aws">AWS / S3</a>
-        </nav>
-        <div class="layout">
-        <div class="sidebar">
-            <h1>API Integração</h1>
-            <div id="loadingBar" class="loading-bar">
-                <div class="spinner"></div>
-                <span id="loadingBarText">Processando...</span>
-            </div>
-            
-            <div style="margin-bottom: 15px; padding: 10px; background: #444; border-radius: 5px;">
-                <label for="seletor_ano" style="display: block; margin-bottom: 5px; font-weight: bold;">Ano para documentos:</label>
-                <select id="seletor_ano" style="width: 100%; padding: 8px; font-size: 16px;">
-                    <option value="2024">2024</option>
-                    <option value="2025">2025</option>
-                    <option value="2026" selected>2026</option>
-                    <option value="2027">2027</option>
-                </select>
-                <p style="font-size: 11px; margin-top: 5px; color: #aaa;">Usado em datas e nomes de arquivos</p>
-            </div>
-            <script>
-                var loadingTimer = null;
-                var loadingStartedAt = 0;
-
-                function atualizarAno() {
-                    var v = document.getElementById("seletor_ano").value;
-                    document.querySelectorAll("input[name=ano]").forEach(function(i) { i.value = v; });
-                    var link = document.getElementById("link_processar_deducoes");
-                    if (link) link.href = "/processar_deducoes/?ano=" + v;
-                }
-
-                function textoAcao(formOuLink) {
-                    if (!formOuLink) return "Processando";
-                    if (formOuLink.tagName === "A") {
-                        return (formOuLink.textContent || "Processando").trim();
-                    }
-                    var btn = formOuLink.querySelector('input[type="submit"]');
-                    return btn && btn.value ? btn.value : "Processando";
-                }
-
-                function mostrarCarregamento(acao) {
-                    var msg = (acao || "Processando") + "...";
-                    document.getElementById("loadingBarText").textContent = msg + " 0s";
-                    document.getElementById("loadingOverlayText").textContent = msg;
-                    document.getElementById("loadingOverlaySub").textContent = "Aguarde, lendo arquivos da rede";
-                    document.getElementById("loadingBar").classList.add("visible");
-                    document.getElementById("loadingOverlay").classList.add("visible");
-                    document.querySelectorAll('input[type="submit"]').forEach(function(b) { b.disabled = true; });
-                    loadingStartedAt = Date.now();
-                    if (loadingTimer) clearInterval(loadingTimer);
-                    loadingTimer = setInterval(function() {
-                        var s = Math.floor((Date.now() - loadingStartedAt) / 1000);
-                        document.getElementById("loadingBarText").textContent = msg + " " + s + "s";
-                        document.getElementById("loadingOverlaySub").textContent = "Aguarde, lendo arquivos da rede (" + s + "s)";
-                    }, 500);
-                }
-
-                function ocultarCarregamento() {
-                    document.getElementById("loadingBar").classList.remove("visible");
-                    document.getElementById("loadingOverlay").classList.remove("visible");
-                    document.querySelectorAll('input[type="submit"]').forEach(function(b) { b.disabled = false; });
-                    if (loadingTimer) {
-                        clearInterval(loadingTimer);
-                        loadingTimer = null;
-                    }
-                }
-
-                function nomeArquivoResposta(resp, fallback) {
-                    var disp = resp.headers.get("Content-Disposition") || "";
-                    var m = /filename\\*?=(?:UTF-8''|")?([^";]+)/i.exec(disp);
-                    if (m) return decodeURIComponent(m[1].replace(/"/g, "").trim());
-                    var ct = (resp.headers.get("Content-Type") || "").toLowerCase();
-                    if (ct.indexOf("spreadsheet") >= 0 || ct.indexOf("excel") >= 0) return fallback + ".xlsx";
-                    if (ct.indexOf("json") >= 0) return fallback + ".json";
-                    return fallback;
-                }
-
-                function baixarBlob(blob, nome) {
-                    var url = URL.createObjectURL(blob);
-                    var a = document.createElement("a");
-                    a.href = url;
-                    a.download = nome;
-                    document.body.appendChild(a);
-                    a.click();
-                    a.remove();
-                    setTimeout(function() { URL.revokeObjectURL(url); }, 1000);
-                }
-
-                document.getElementById("seletor_ano").addEventListener("change", atualizarAno);
-                document.addEventListener("DOMContentLoaded", function() {
-                    atualizarAno();
-                    var iframe = document.getElementById("content_frame");
-                    iframe.addEventListener("load", ocultarCarregamento);
-
-                    document.querySelectorAll('a[target="content_frame"]').forEach(function(link) {
-                        link.addEventListener("click", function() {
-                            mostrarCarregamento(textoAcao(link));
-                        });
-                    });
-
-                    document.querySelectorAll(".sidebar form").forEach(function(form) {
-                        form.addEventListener("submit", function(e) {
-                            if (!form.checkValidity()) return;
-                            var acao = textoAcao(form);
-                            if ((form.getAttribute("target") || "") === "content_frame") {
-                                mostrarCarregamento(acao);
-                                return;
-                            }
-                            e.preventDefault();
-                            mostrarCarregamento(acao);
-                            var method = (form.getAttribute("method") || "get").toLowerCase();
-                            var url = form.getAttribute("action") || "";
-                            var opts = { method: method };
-                            if (method === "get") {
-                                var qs = new URLSearchParams(new FormData(form)).toString();
-                                url += (url.indexOf("?") >= 0 ? "&" : "?") + qs;
-                            } else {
-                                opts.body = new FormData(form);
-                            }
-                            fetch(url, opts).then(function(resp) {
-                                if (!resp.ok) throw new Error("HTTP " + resp.status);
-                                return resp.blob().then(function(blob) {
-                                    baixarBlob(blob, nomeArquivoResposta(resp, acao.replace(/\\s+/g, "_")));
-                                });
-                            }).catch(function(err) {
-                                alert("Falha ao processar: " + err.message);
-                            }).finally(ocultarCarregamento);
-                        });
-                    });
-                });
-            </script>
-
-            <h2 style="color:#ff6600;">Pacote Automático</h2>
-            <form action="/gerar_pacote_local/" method="get" target="content_frame">
-                <input type="hidden" name="ano" value="2026">
-                <h3>Gerar pacote e enviar ao S3</h3>
-                <p style="font-size: 11px; color: #aaa; margin: 0 0 8px 0;">
-                    Informe o DIA ALVO (ex.: 11). Gera 4 arquivos na pasta e envia ao S3:
-                    MAB/MCR/DESCONTOS/RENUNCIAS_DD-MM-AAAA.json.
-                    Se o dia já existir, sobe como RET1, RET2, etc.
-                </p>
-                <label for="dia_pacote">Dia alvo:</label>
-                <input type="number" name="dia" id="dia_pacote" min="1" max="31" required>
-                <label for="mes_pacote">Mês alvo:</label>
-                <input type="number" name="mes" id="mes_pacote" min="1" max="12" required>
-                <input type="submit" value="Gerar Pacote e Enviar S3" style="background: #ff6600;">
-            </form>
-            
-            <h2>MAB</h2>
-            <a href="/processar/" target="content_frame">Processar MAB</a>
-            <form action="/filtrar_por_dia_mes/" method="get" target="content_frame">
-                <input type="hidden" name="ano" value="2026">
-                <h3>Filtrar MAB</h3>
-                <label for="dia_mab">Dia:</label>
-                <input type="number" name="dia" id="dia_mab" min="1" max="31" required>
-                <label for="mes_mab">Mês:</label>
-                <input type="number" name="mes" id="mes_mab" min="1" max="12" required>
-                <input type="submit" value="Filtrar MAB">
-            </form>
-
-            <form action="/download_mab_json/" method="get">
-                <input type="hidden" name="ano" value="2026">
-                <h3>Baixar MAB JSON</h3>
-                <label for="dia_mab_json">Dia:</label>
-                <input type="number" name="dia" id="dia_mab_json" min="1" max="31" required>
-                <label for="mes_mab_json">Mês:</label>
-                <input type="number" name="mes" id="mes_mab_json" min="1" max="12" required>
-                <input type="submit" value="Baixar MAB JSON" style="background: #28a745;">
-            </form>
-
-            <form action="/gerar_relatorio_mab/" method="get">
-                <input type="hidden" name="ano" value="2026">
-                <h3>Gerar Relatório MAB</h3>
-                <label for="mes_relatorio_mab">Mês:</label>
-                <input type="number" name="mes" id="mes_relatorio_mab" min="1" max="12" required>
-                <input type="submit" value="Baixar Relatório MAB">
-            </form>
-
-            <h2>MCR</h2>
-            <a href="/processar_classificacao/" target="content_frame">Processar MCR</a>
-            <form action="/filtrar_classificacao_por_dia_mes/" method="get" target="content_frame">
-                <input type="hidden" name="ano" value="2026">
-                <h3>Filtrar MCR</h3>
-                <label for="dia_mcr">Dia:</label>
-                <input type="number" name="dia" id="dia_mcr" min="1" max="31" required>
-                <label for="mes_mcr">Mês:</label>
-                <input type="number" name="mes" id="mes_mcr" min="1" max="12" required>
-                <input type="submit" value="Filtrar MCR">
-            </form>
-
-            <form action="/download_mcr_json/" method="get">
-                <input type="hidden" name="ano" value="2026">
-                <h3>Baixar MCR JSON</h3>
-                <label for="dia_mcr_json">Dia:</label>
-                <input type="number" name="dia" id="dia_mcr_json" min="1" max="31" required>
-                <label for="mes_mcr_json">Mês:</label>
-                <input type="number" name="mes" id="mes_mcr_json" min="1" max="12" required>
-                <input type="submit" value="Baixar MCR JSON" style="background: #28a745;">
-            </form>
-
-            <form action="/gerar_relatorio_mcr/" method="get">
-                <input type="hidden" name="ano" value="2026">
-                <h3>Gerar Relatório MCR</h3>
-                <label for="mes_relatorio_mcr">Mês:</label>
-                <input type="number" name="mes" id="mes_relatorio_mcr" min="1" max="12" required>
-                <input type="submit" value="Baixar Relatório MCR">
-            </form>
-
-            <h2>Ajuste MCR x MAB</h2>
-            <form action="/ajustar_mcr_por_mab_json/" method="post" enctype="multipart/form-data" target="content_frame">
-                <h3>Upload MAB + MCR (mesma data)</h3>
-                <label for="mab_json_upload">Arquivo MAB JSON:</label>
-                <input type="file" name="mab_json_upload" id="mab_json_upload" accept=".json,application/json" required>
-                <label for="mcr_json_upload">Arquivo MCR JSON:</label>
-                <input type="file" name="mcr_json_upload" id="mcr_json_upload" accept=".json,application/json" required>
-                <p style="font-size: 11px; margin-top: 5px; color: #aaa;">
-                    Alerta: os arquivos precisam ter a mesma data_arrecadacao.
-                </p>
-                <input type="submit" value="Gerar MCR Ajustado" style="background: #6f42c1;">
-            </form>
-            
-            <h2>Desconto/Renúncia</h2>
-            <a href="/processar_deducoes/?ano=2026" target="content_frame" id="link_processar_deducoes">Processar Deduções</a>
-            <form action="/filtrar_deducoes_por_dia_mes/" method="get" target="content_frame">
-                <input type="hidden" name="ano" value="2026">
-                <h3>Filtrar Deduções</h3>
-                <label for="dia_deducao">Dia:</label>
-                <input type="number" name="dia" id="dia_deducao" min="1" max="31" required>
-                <label for="mes_deducao">Mês:</label>
-                <input type="number" name="mes" id="mes_deducao" min="1" max="12" required>
-                <input type="submit" value="Filtrar Deduções">
-            </form>
-
-            <form action="/download_deducoes_json/" method="get">
-                <input type="hidden" name="ano" value="2026">
-                <h3>Baixar Deduções JSON (Completo)</h3>
-                <label for="dia_deducao_json">Dia:</label>
-                <input type="number" name="dia" id="dia_deducao_json" min="1" max="31" required>
-                <label for="mes_deducao_json">Mês:</label>
-                <input type="number" name="mes" id="mes_deducao_json" min="1" max="12" required>
-                <input type="submit" value="Baixar Deduções JSON" style="background: #28a745;">
-            </form>
-
-            <form action="/download_renuncias_json/" method="get">
-                <input type="hidden" name="ano" value="2026">
-                <h3>Baixar Renúncias JSON (91)</h3>
-                <label for="dia_renuncias_json">Dia:</label>
-                <input type="number" name="dia" id="dia_renuncias_json" min="1" max="31" required>
-                <label for="mes_renuncias_json">Mês:</label>
-                <input type="number" name="mes" id="mes_renuncias_json" min="1" max="12" required>
-                <input type="submit" value="Baixar Renúncias JSON" style="background: #ffc107; color: #000;">
-            </form>
-
-            <form action="/download_descontos_json/" method="get">
-                <input type="hidden" name="ano" value="2026">
-                <h3>Baixar Descontos JSON (93)</h3>
-                <label for="dia_descontos_json">Dia:</label>
-                <input type="number" name="dia" id="dia_descontos_json" min="1" max="31" required>
-                <label for="mes_descontos_json">Mês:</label>
-                <input type="number" name="mes" id="mes_descontos_json" min="1" max="12" required>
-                <input type="submit" value="Baixar Descontos JSON" style="background: #dc3545; color: #fff;">
-            </form>
-        </div>
-        <div class="content">
-            <div id="loadingOverlay" class="loading-overlay">
-                <div class="spinner-lg"></div>
-                <p id="loadingOverlayText">Processando...</p>
-                <p id="loadingOverlaySub" class="loading-sub">Aguarde, lendo arquivos da rede</p>
-            </div>
-            <iframe name="content_frame" id="content_frame"></iframe>
-        </div>
-        </div>
-    </body>
-    </html>
-    """
-    return html_content
-
-
+    caminho = os.path.join(os.path.dirname(os.path.abspath(__file__)), "interface.html")
+    with open(caminho, encoding="utf-8") as f:
+        return f.read()
 
 
 @app.get("/processar/")
