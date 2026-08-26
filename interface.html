@@ -118,16 +118,74 @@
       display: flex; align-items: center; gap: 12px;
     }
     .brand-mark {
-      width: 36px; height: 36px; border-radius: 10px;
-      background: linear-gradient(135deg, var(--accent), #f59e0b);
+      width: 42px; height: 42px; border-radius: 12px;
+      background: linear-gradient(145deg, var(--accent) 0%, #f59e0b 55%, #ea580c 100%);
       display: grid; place-items: center;
-      color: #fff; font-weight: 800; font-size: 13px;
-      box-shadow: 0 6px 16px color-mix(in srgb, var(--accent) 40%, transparent);
-      animation: markPulse 3.2s ease-in-out infinite;
+      box-shadow: 0 8px 20px color-mix(in srgb, var(--accent) 38%, transparent);
+      overflow: hidden;
+      position: relative;
+      flex-shrink: 0;
     }
-    @keyframes markPulse {
-      0%, 100% { transform: translateY(0); }
-      50% { transform: translateY(-2px); }
+    .brand-mark::after {
+      content: "";
+      position: absolute; inset: 0;
+      background: linear-gradient(120deg, transparent 30%, rgba(255,255,255,.28) 50%, transparent 70%);
+      transform: translateX(-120%);
+      animation: logoShine 4.5s ease-in-out infinite;
+    }
+    .brand-mark svg {
+      width: 28px; height: 28px;
+      display: block;
+      position: relative;
+      z-index: 1;
+    }
+    .brand-mark .link {
+      fill: none;
+      stroke: rgba(255,255,255,.85);
+      stroke-width: 1.6;
+      stroke-linecap: round;
+      stroke-dasharray: 4 6;
+      animation: linkFlow 1.4s linear infinite;
+    }
+    .brand-mark .link.b { animation-delay: -.7s; opacity: .7; }
+    .brand-mark .node {
+      fill: #fff;
+      transform-box: fill-box;
+      transform-origin: center;
+      animation: nodePulse 2.4s ease-in-out infinite;
+    }
+    .brand-mark .node.n2 { animation-delay: .35s; }
+    .brand-mark .node.n3 { animation-delay: .7s; }
+    .brand-mark .packet {
+      fill: #fff;
+      filter: drop-shadow(0 0 2px rgba(255,255,255,.9));
+    }
+    .brand-mark .orbit {
+      animation: logoOrbit 6s ease-in-out infinite;
+      transform-origin: 16px 16px;
+    }
+    @keyframes linkFlow {
+      to { stroke-dashoffset: -20; }
+    }
+    @keyframes nodePulse {
+      0%, 100% { transform: scale(1); opacity: 1; }
+      50% { transform: scale(1.18); opacity: .88; }
+    }
+    @keyframes logoOrbit {
+      0%, 100% { transform: rotate(-6deg); }
+      50% { transform: rotate(6deg); }
+    }
+    @keyframes logoShine {
+      0%, 55% { transform: translateX(-120%); }
+      75%, 100% { transform: translateX(120%); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .brand-mark::after,
+      .brand-mark .link,
+      .brand-mark .node,
+      .brand-mark .orbit { animation: none !important; }
+      .brand-mark .packet animate,
+      .brand-mark .packet animateMotion { display: none; }
     }
     header h1 { margin: 0; font-size: 17px; font-weight: 800; letter-spacing: -.02em; }
     header .sub { color: var(--header-sub); font-size: 12px; margin-top: 2px; font-weight: 500; }
@@ -446,7 +504,26 @@
 <body>
   <header>
     <div class="brand">
-      <div class="brand-mark" aria-hidden="true">SF</div>
+      <div class="brand-mark" aria-hidden="true" title="Integração">
+        <svg viewBox="0 0 32 32" role="img">
+          <defs>
+            <path id="fluxoPath" d="M8 22 C12 10, 20 10, 24 22"/>
+          </defs>
+          <g class="orbit">
+            <path class="link" d="M8 22 C12 10, 20 10, 24 22"/>
+            <path class="link b" d="M8 22 L16 11 L24 22"/>
+            <circle class="node n1" cx="8" cy="22" r="3.2"/>
+            <circle class="node n2" cx="16" cy="11" r="3.2"/>
+            <circle class="node n3" cx="24" cy="22" r="3.2"/>
+            <circle class="packet" r="1.7" cx="0" cy="0">
+              <animateMotion dur="2.8s" repeatCount="indefinite" rotate="auto">
+                <mpath href="#fluxoPath"/>
+              </animateMotion>
+              <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.12;0.88;1" dur="2.8s" repeatCount="indefinite"/>
+            </circle>
+          </g>
+        </svg>
+      </div>
       <div>
         <h1>SEFAZ Integração</h1>
         <div class="sub">Razão GovBR · Pacote · S3</div>
