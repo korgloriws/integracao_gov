@@ -532,6 +532,7 @@
     <div class="chips">
       <div class="chip" id="chipGov"><span class="dot"></span>GovBR</div>
       <div class="chip" id="chipAws"><span class="dot"></span>AWS</div>
+      <div class="chip" id="chipShare"><span class="dot"></span>Share</div>
       <button type="button" class="chip-btn" id="btnTestarTudo">Testar APIs</button>
       <button type="button" class="theme-btn" id="btnTema">Tema escuro</button>
     </div>
@@ -762,7 +763,7 @@
       if (loadingTimer) { clearInterval(loadingTimer); loadingTimer = null; }
     }
     function setChip(id, ok, detalhe) {
-      const labels = { chipGov: "GovBR", chipAws: "AWS" };
+      const labels = { chipGov: "GovBR", chipAws: "AWS", chipShare: "Share SEFAZ" };
       const el = $(id);
       el.classList.remove("ok", "err", "warn");
       el.classList.add(ok === true ? "ok" : ok === false ? "err" : "warn");
@@ -968,9 +969,11 @@
         const d = await getJson("/status_fontes/");
         setChip("chipGov", !!(d.gov && d.gov.sucesso), d.gov && d.gov.sucesso ? "ok" : "falhou");
         setChip("chipAws", !!(d.aws && d.aws.sucesso), d.aws && d.aws.sucesso ? "ok" : "falhou");
+        setChip("chipShare", !!(d.share && d.share.sucesso), d.share && d.share.sucesso ? "ok" : "sem acesso");
       } catch (e) {
         setChip("chipGov", false, "erro");
         setChip("chipAws", false, "erro");
+        setChip("chipShare", false, "erro");
       } finally {
         ocultarLoading();
       }
@@ -1123,9 +1126,11 @@
       getJson("/status_fontes/").then((d) => {
         setChip("chipGov", !!(d.gov && d.gov.sucesso), d.gov && d.gov.sucesso ? "ok" : "falhou");
         setChip("chipAws", !!(d.aws && d.aws.sucesso), d.aws && d.aws.sucesso ? "ok" : "falhou");
+        setChip("chipShare", !!(d.share && d.share.sucesso), d.share && d.share.sucesso ? "ok" : "sem acesso");
       }).catch(() => {
         setChip("chipGov", false, "erro");
         setChip("chipAws", false, "erro");
+        setChip("chipShare", false, "erro");
       });
     })();
   </script>

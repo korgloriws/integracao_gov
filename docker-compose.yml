@@ -9,14 +9,17 @@ services:
     environment:
       PORT: "8000"
       AWS_CACHE_INDEX: /app/data/aws_cache_index.json
-      SEFAZ_SHARE_ROOT: ${SEFAZ_SHARE_ROOT:-/mnt/sefaz}
+      # Dentro do container sempre /mnt/sefaz (montado do host abaixo)
+      SEFAZ_SHARE_ROOT: /mnt/sefaz
     ports:
       - "${APP_PORT:-3080}:8000"
     volumes:
+      # JSONs gerados aparecem na pasta do projeto no Windows
       - ./saida_pacotes:/app/saida_pacotes
       - ./data:/app/data
-      # Monte o compartilhamento da SEFAZ no host (CIFS/VPN) e descomente:
-      # - /mnt/sefaz:/mnt/sefaz:ro
+      # Compartilhamento SEFAZ: no Windows mapeie Z: com scripts/montar-share-sefaz.ps1
+      # e defina SEFAZ_SHARE_HOST_PATH=Z:/ no .env (Docker Desktop precisa compartilhar a unidade Z:)
+      - ${SEFAZ_SHARE_HOST_PATH:-Z:/}:/mnt/sefaz:ro
     healthcheck:
       test:
         - CMD

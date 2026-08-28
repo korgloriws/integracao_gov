@@ -1443,8 +1443,12 @@ def processar_pasta_deducoes(caminho_pasta: str, ano: int = 2026) -> list:
 @app.get("/status_fontes/")
 def status_fontes():
     from aws_manager_visivel import AWSManagerVisivel
+    from carregar_env import diagnosticar_share_sefaz, diretorio_projeto
+
     gov = get_gov_client().autenticar()
     aws = AWSManagerVisivel().testar_conexao()
+    share = diagnosticar_share_sefaz()
+    pasta_saida = os.path.join(diretorio_projeto(), "saida_pacotes")
     return {
         "gov": {
             "sucesso": bool(gov.get("sucesso")),
@@ -1455,6 +1459,13 @@ def status_fontes():
             "sucesso": bool(aws.get("sucesso")),
             "mensagem": aws.get("mensagem"),
             "status_code": aws.get("status_code"),
+        },
+        "share": {
+            "sucesso": bool(share.get("acessivel")),
+            "mensagem": share.get("mensagem"),
+            "root": share.get("root"),
+            "pasta_saida": pasta_saida,
+            "pasta_saida_gravavel": os.path.isdir(pasta_saida) and os.access(pasta_saida, os.W_OK),
         },
     }
 
@@ -1912,6 +1923,7 @@ def gerar_pacote_local(
     6) Envia ao S3 com nome TIPO_DD-MM-YYYY.json; se o dia ja existir, usa -RET1, -RET2...
     """
     from datetime import datetime
+    from carregar_env import diagnosticar_share_sefaz, diretorio_projeto
 
     dia_mab, mes_mab, ano_mab = calcular_dia_util_anterior_parts(dia, mes, ano)
     data_alvo = f"{dia:02d}/{mes:02d}/{ano}"
@@ -1919,13 +1931,16 @@ def gerar_pacote_local(
     sufixo_data = f"{dia:02d}_{mes:02d}_{ano}"
 
     pasta_dia = os.path.join(
-        os.getcwd(),
+        diretorio_projeto(),
         pasta_saida,
         f"{ano}-{mes:02d}-{dia:02d}",
     )
     os.makedirs(pasta_dia, exist_ok=True)
 
     erros = []
+    share = diagnosticar_share_sefaz()
+    if not share.get("acessivel"):
+        erros.append(f"Share SEFAZ: {share.get('mensagem')}")
     arquivos = {}
 
     mab_json = None
@@ -2016,21 +2031,30 @@ def gerar_pacote_local(
 
     envio_s3 = None
     if enviar_s3:
-        try:
-            envio_s3 = _enviar_pacote_para_s3(
-                data_alvo,
-                {
-                    "mab": mab_json if "mab" in arquivos else None,
-                    "mcr": mcr_ajustado if "mcr" in arquivos else None,
-                    "renuncias": renuncias_json if "renuncias" in arquivos else None,
-                    "descontos": descontos_json if "descontos" in arquivos else None,
-                },
+        mab_qtd = (mab_json or {}).get("total_registros") or 0
+        mcr_qtd = (mcr_ajustado or mcr_json or {}).get("total_registros") or 0
+        if not share.get("acessivel"):
+            erros.append("Envio ao S3 cancelado: compartilhamento SEFAZ inacessível no container.")
+        elif mab_qtd == 0 and mcr_qtd == 0:
+            erros.append(
+                "Envio ao S3 cancelado: MAB e MCR vieram vazios (provável falha de leitura das pastas)."
             )
-            if envio_s3.get("erros"):
-                erros.extend([f"S3 {e}" for e in envio_s3["erros"]])
-        except Exception as e:
-            envio_s3 = {"sucesso": False, "mensagem": str(e), "arquivos": [], "erros": [str(e)]}
-            erros.append(f"S3: {e}")
+        else:
+            try:
+                envio_s3 = _enviar_pacote_para_s3(
+                    data_alvo,
+                    {
+                        "mab": mab_json if "mab" in arquivos else None,
+                        "mcr": mcr_ajustado if "mcr" in arquivos else None,
+                        "renuncias": renuncias_json if "renuncias" in arquivos else None,
+                        "descontos": descontos_json if "descontos" in arquivos else None,
+                    },
+                )
+                if envio_s3.get("erros"):
+                    erros.extend([f"S3 {e}" for e in envio_s3["erros"]])
+            except Exception as e:
+                envio_s3 = {"sucesso": False, "mensagem": str(e), "arquivos": [], "erros": [str(e)]}
+                erros.append(f"S3: {e}")
 
     relatorio = {
         "gerado_em": datetime.now().isoformat(),
@@ -2050,6 +2074,7 @@ def gerar_pacote_local(
             "descontos": (descontos_json or {}).get("total_registros"),
         },
         "conferencia_mab_mcr": conferencia,
+        "share": share,
         "arquivos": arquivos,
         "pasta_saida": pasta_dia,
         "envio_s3": envio_s3,
