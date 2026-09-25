@@ -424,6 +424,7 @@
     .alert { padding: 12px 14px; border-radius: 10px; margin-top: 12px; font-size: 13px; animation: cardRise .35s var(--ease); }
     .alert.ok { background: var(--ok-bg); color: var(--ok); }
     .alert.err { background: var(--err-bg); color: var(--err); }
+    .alert.warn { background: var(--warn-bg); color: var(--warn); }
     .chips-filtros { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; min-height: 28px; }
     .chip-filtro {
       background: var(--accent-soft); border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--line));
@@ -442,6 +443,16 @@
     }
     .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: end; }
     .field.mini { min-width: 160px; }
+    .checks { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+    .check {
+      display: inline-flex; align-items: center; gap: 7px;
+      border: 1px solid var(--line); border-radius: 999px;
+      padding: 6px 12px; font-size: 12px; font-weight: 700;
+      background: var(--surface-2); cursor: pointer; user-select: none;
+    }
+    .check input { accent-color: var(--accent); }
+    .day-block { margin-top: 16px; }
+    .day-block h3 { margin: 0 0 8px; font-size: 15px; }
     .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
     .tool-grid {
       display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px;
@@ -451,6 +462,42 @@
       overflow: auto; max-height: 360px; font-size: 12px;
       font-family: "JetBrains Mono", ui-monospace, monospace;
       border: 1px solid var(--line);
+    }
+    .modal {
+      display: none; position: fixed; inset: 0; background: var(--overlay-bg);
+      align-items: center; justify-content: center; z-index: 30;
+      backdrop-filter: blur(4px); padding: 18px;
+    }
+    .modal.visible { display: flex; }
+    .modal-box {
+      background: var(--surface); color: var(--ink); border-radius: 16px;
+      border: 1px solid var(--line); box-shadow: var(--shadow-lg);
+      width: min(920px, 100%); max-height: min(88vh, 900px);
+      display: flex; flex-direction: column; overflow: hidden;
+      animation: cardRise .35s var(--ease);
+    }
+    .modal-head {
+      display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
+      padding: 16px 18px; border-bottom: 1px solid var(--line);
+    }
+    .modal-head h3 { margin: 0; font-size: 16px; }
+    .modal-body { padding: 14px 18px 18px; overflow: auto; }
+    .modal-body pre { max-height: none; }
+    .modal-close {
+      border: 1px solid var(--line); background: var(--surface-2); color: var(--ink);
+      border-radius: 10px; width: 36px; height: 36px; cursor: pointer; font-size: 18px; font-weight: 700;
+    }
+    .seg {
+      display: inline-flex; gap: 4px; padding: 4px; border-radius: 12px;
+      background: var(--surface-2); border: 1px solid var(--line);
+    }
+    .seg button {
+      border: 0; background: transparent; color: var(--muted); border-radius: 8px;
+      padding: 8px 12px; cursor: pointer; font: inherit; font-weight: 700; font-size: 13px;
+    }
+    .seg button.active {
+      background: var(--accent); color: #fff;
+      box-shadow: 0 4px 12px color-mix(in srgb, var(--accent) 35%, transparent);
     }
     .overlay {
       display: none; position: fixed; inset: 0; background: var(--overlay-bg);
@@ -531,7 +578,8 @@
     </div>
     <div class="chips">
       <div class="chip" id="chipGov"><span class="dot"></span>GovBR</div>
-      <div class="chip" id="chipAws"><span class="dot"></span>AWS</div>
+      <div class="chip" id="chipAws"><span class="dot"></span>S3</div>
+      <div class="chip" id="chipBanco"><span class="dot"></span>Banco</div>
       <div class="chip" id="chipShare"><span class="dot"></span>Share</div>
       <button type="button" class="chip-btn" id="btnTestarTudo">Testar APIs</button>
       <button type="button" class="theme-btn" id="btnTema">Tema escuro</button>
@@ -542,7 +590,7 @@
     <nav class="steps">
       <div class="nav-label">Navegação</div>
       <button class="active" data-panel="razao"><span class="ico">☰</span>Razão GovBR</button>
-      <button data-panel="pacote"><span class="ico">▣</span>Pacote do dia</button>
+      <button data-panel="pacote"><span class="ico">▣</span>Pacote e conferência</button>
       <button data-panel="s3"><span class="ico">☁</span>Arquivos no S3</button>
       <button data-panel="extras"><span class="ico">⚙</span>Ferramentas</button>
       <p class="hint">Conta e natureza: digite o início do código (quantos dígitos quiser).</p>
@@ -602,20 +650,35 @@
       <section class="panel" id="panel-pacote">
         <div class="panel-head">
           <div>
-            <div class="eyebrow">Rotina diária</div>
-            <h2>Pacote do dia</h2>
-            <p class="lead">Gera MAB, MCR ajustado, Renúncias e Descontos e envia ao S3.</p>
+            <div class="eyebrow">Rotina</div>
+            <h2>Pacote e conferência</h2>
+            <p class="lead">Gere por dia ou período, veja os valores na tela, baixe o JSON e só então envie ao S3.</p>
           </div>
         </div>
         <div class="card">
           <div class="row">
             <div class="field mini">
-              <label>Dia alvo</label>
+              <label>Data início</label>
               <input type="date" id="dataAlvo">
             </div>
-            <button class="btn" id="btnGerar">Gerar e enviar ao S3</button>
+            <div class="field mini">
+              <label>Data final</label>
+              <input type="date" id="dataAlvoFim">
+            </div>
+          </div>
+          <div class="checks" id="tiposPacote">
+            <label class="check"><input type="checkbox" value="mab" checked> MAB (7066 / 6112)</label>
+            <label class="check"><input type="checkbox" value="mcr" checked> MCR</label>
+            <label class="check"><input type="checkbox" value="renuncias" checked> Renúncias 91</label>
+            <label class="check"><input type="checkbox" value="descontos" checked> Descontos 93</label>
+          </div>
+          <div class="actions">
+            <button class="btn" id="btnGerar">Gerar e ver na tela</button>
+            <button class="btn ghost" id="btnConferirNomes">Conferir nomes (Banco × Local)</button>
+            <button class="btn ghost" id="btnEnviarS3">Enviar ao S3 o que já conferi</button>
           </div>
           <div class="rule" id="regraData" style="margin-top:14px;"></div>
+          <p class="muted" style="margin-top:8px">Antes do envio, consulta API Banco e índice local. Se o próximo nome RET divergir, você escolhe qual seguir.</p>
         </div>
         <div id="pacoteOut"></div>
       </section>
@@ -625,17 +688,28 @@
           <div>
             <div class="eyebrow">Armazenamento</div>
             <h2>Arquivos no S3</h2>
-            <p class="lead">Versão vigente (original/RET) e histórico local de envios.</p>
+            <p class="lead">Consulte a API Banco ou o índice local, filtre por data e abra o conteúdo em modal.</p>
           </div>
         </div>
         <div class="card">
-          <div class="row">
+          <div class="row" style="align-items:center;">
+            <div>
+              <label style="display:block;font-size:12px;font-weight:700;color:var(--muted);margin-bottom:6px;">Fonte</label>
+              <div class="seg" id="fonteS3">
+                <button type="button" class="active" data-fonte="banco">API Banco (listar-arquivos)</button>
+                <button type="button" data-fonte="local">Índice local</button>
+              </div>
+            </div>
             <div class="field mini">
-              <label>Data no S3</label>
+              <label>Data</label>
               <input type="date" id="dataS3">
             </div>
-            <button class="btn" id="btnListarS3">Consultar S3</button>
+            <button class="btn" id="btnListarS3">Consultar</button>
           </div>
+          <p class="muted" style="margin-top:10px" id="dicaFonteS3">
+            API Banco: <code>/prod/listar-arquivos?data=dd/mm/aaaa</code> com <code>BANCO_API_KEY</code> do .env.
+            S3/upload continua com <code>AWS_API_KEY</code>.
+          </p>
           <div id="s3Out"></div>
         </div>
       </section>
@@ -645,21 +719,35 @@
           <div>
             <div class="eyebrow">Utilitários</div>
             <h2>Ferramentas</h2>
-            <p class="lead">Downloads avulsos, relatórios e diagnósticos.</p>
+            <p class="lead">Gerar, ver e baixar cada arquivo por período — sem enviar.</p>
           </div>
         </div>
         <div class="tool-grid">
           <div class="card">
-            <h3>Baixar JSON avulso</h3>
+            <h3>Ver e baixar JSON por tipo</h3>
+            <p class="muted">Escolha qualquer dia ou período, gere, veja os valores e baixe — não envia ao S3.</p>
             <div class="row">
-              <button class="btn ghost" data-dl="/download_mab_json/">MAB</button>
-              <button class="btn ghost" data-dl="/download_mcr_json/">MCR</button>
-              <button class="btn ghost" data-dl="/download_renuncias_json/">Renúncias 91</button>
-              <button class="btn ghost" data-dl="/download_descontos_json/">Descontos 93</button>
+              <div class="field mini">
+                <label>Data início</label>
+                <input type="date" id="dataFerrIni">
+              </div>
+              <div class="field mini">
+                <label>Data final</label>
+                <input type="date" id="dataFerrFim">
+              </div>
             </div>
+            <div class="rule" id="regraFerr" style="margin-top:12px;"></div>
+            <div class="row" style="margin-top:12px;">
+              <button class="btn ghost" data-tipo="mab">Ver / baixar MAB</button>
+              <button class="btn ghost" data-tipo="mcr">Ver / baixar MCR</button>
+              <button class="btn ghost" data-tipo="renuncias">Ver / baixar Renúncias 91</button>
+              <button class="btn ghost" data-tipo="descontos">Ver / baixar Descontos 93</button>
+            </div>
+            <div id="avulsoOut"></div>
           </div>
           <div class="card">
             <h3>Relatórios Excel</h3>
+            <p class="muted">Usa o mês da data início acima.</p>
             <div class="row">
               <button class="btn ghost" data-rel="mab">Relatório MAB do mês</button>
               <button class="btn ghost" data-rel="mcr">Relatório MCR do mês</button>
@@ -700,6 +788,19 @@
     </div>
   </div>
 
+  <div class="modal" id="modalArquivo" role="dialog" aria-modal="true">
+    <div class="modal-box">
+      <div class="modal-head">
+        <div>
+          <h3 id="modalTitulo">Detalhe do arquivo</h3>
+          <div class="muted" id="modalSub" style="margin-top:4px;font-size:12px;"></div>
+        </div>
+        <button type="button" class="modal-close" id="btnFecharModal" aria-label="Fechar">×</button>
+      </div>
+      <div class="modal-body" id="modalBody"></div>
+    </div>
+  </div>
+
   <script>
     const $ = (id) => document.getElementById(id);
     let loadingTimer = null;
@@ -736,17 +837,26 @@
       while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() - 1);
       return d.toISOString().slice(0, 10);
     }
-    function atualizarRegra() {
-      const p = partesData($("dataAlvo").value);
-      if (!p) {
-        $("regraData").innerHTML = "Escolha o <strong>dia alvo</strong>.";
-        return;
+    function textoRegraPeriodo(ini, fim) {
+      if (!ini || !fim) return "Escolha o <strong>período</strong>.";
+      const mab = partesData(diaUtilAnterior(ini.iso));
+      if (ini.iso === fim.iso) {
+        return "Dia alvo <strong>" + fmtBR(ini) + "</strong>. MAB lê <strong>" + fmtBR(mab) +
+          "</strong>. MCR/Renúncias/Descontos usam o dia alvo.";
       }
-      const mab = partesData(diaUtilAnterior(p.iso));
-      $("regraData").innerHTML =
-        "Dia alvo <strong>" + fmtBR(p) + "</strong>. MAB lê <strong>" + fmtBR(mab) +
-        "</strong>. MCR/Renúncias/Descontos usam o dia alvo.";
-      $("dataS3").value = p.iso;
+      return "Período <strong>" + fmtBR(ini) + "</strong> a <strong>" + fmtBR(fim) +
+        "</strong> (máx. 31 dias). Em cada dia o MAB é o dia útil anterior.";
+    }
+    function atualizarRegra() {
+      const ini = partesData($("dataAlvo").value);
+      const fim = partesData($("dataAlvoFim").value || (ini && ini.iso));
+      $("regraData").innerHTML = textoRegraPeriodo(ini, fim);
+      if (ini) $("dataS3").value = ini.iso;
+    }
+    function atualizarRegraFerr() {
+      const ini = partesData($("dataFerrIni").value);
+      const fim = partesData($("dataFerrFim").value || (ini && ini.iso));
+      $("regraFerr").innerHTML = textoRegraPeriodo(ini, fim);
     }
     function mostrarLoading(texto) {
       $("overlayText").textContent = texto || "Processando…";
@@ -763,7 +873,7 @@
       if (loadingTimer) { clearInterval(loadingTimer); loadingTimer = null; }
     }
     function setChip(id, ok, detalhe) {
-      const labels = { chipGov: "GovBR", chipAws: "AWS", chipShare: "Share SEFAZ" };
+      const labels = { chipGov: "GovBR", chipAws: "S3", chipBanco: "Banco", chipShare: "Share SEFAZ" };
       const el = $(id);
       el.classList.remove("ok", "err", "warn");
       el.classList.add(ok === true ? "ok" : ok === false ? "err" : "warn");
@@ -969,10 +1079,12 @@
         const d = await getJson("/status_fontes/");
         setChip("chipGov", !!(d.gov && d.gov.sucesso), d.gov && d.gov.sucesso ? "ok" : "falhou");
         setChip("chipAws", !!(d.aws && d.aws.sucesso), d.aws && d.aws.sucesso ? "ok" : "falhou");
+        setChip("chipBanco", !!(d.banco && d.banco.sucesso), d.banco && d.banco.sucesso ? "ok" : "falhou");
         setChip("chipShare", !!(d.share && d.share.sucesso), d.share && d.share.sucesso ? "ok" : "sem acesso");
       } catch (e) {
         setChip("chipGov", false, "erro");
         setChip("chipAws", false, "erro");
+        setChip("chipBanco", false, "erro");
         setChip("chipShare", false, "erro");
       } finally {
         ocultarLoading();
@@ -980,70 +1092,631 @@
     });
 
     $("dataAlvo").addEventListener("change", atualizarRegra);
-    $("btnGerar").addEventListener("click", async () => {
-      const p = partesData($("dataAlvo").value);
-      if (!p) { $("pacoteOut").innerHTML = "<div class='alert err'>Informe o dia alvo.</div>"; return; }
-      mostrarLoading("Gerando pacote e enviando ao S3");
+    $("dataAlvoFim").addEventListener("change", atualizarRegra);
+
+    let ultimoPacote = null;
+
+    function tiposSelecionados() {
+      return Array.from(document.querySelectorAll("#tiposPacote input:checked")).map((el) => el.value);
+    }
+    function qsPeriodo(extra, idIni, idFim) {
+      const ini = partesData($(idIni || "dataAlvo").value);
+      const fim = partesData($(idFim || "dataAlvoFim").value || (ini && ini.iso));
+      if (!ini || !fim) return null;
+      const qs = new URLSearchParams({
+        data_inicio: ini.iso,
+        data_final: fim.iso,
+      });
+      Object.keys(extra || {}).forEach((k) => {
+        if (extra[k] != null && extra[k] !== "") qs.set(k, extra[k]);
+      });
+      return { ini, fim, qs };
+    }
+    function nomeConta(codigo) {
+      const c = String(codigo || "");
+      if (c === "7066") return "7066 Caixa";
+      if (c === "6112") return "6112 Brasil";
+      if (c === "4066") return "4066 Caixa (antiga)";
+      return c || "—";
+    }
+    function baixarJson(nome, obj) {
+      const blob = new Blob([JSON.stringify(obj, null, 2)], { type: "application/json" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = nome;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    }
+    function parseMoedaFlex(v) {
+      if (v == null || v === "") return 0;
+      if (typeof v === "number") return v;
+      let s = String(v).trim().replace(/\s/g, "");
+      if (s.indexOf(",") >= 0) s = s.replace(/\./g, "").replace(",", ".");
+      const n = Number(s);
+      return Number.isFinite(n) ? n : 0;
+    }
+    function resumoMcrDoPayload(payload, resumo) {
+      const base = Object.assign({ tipo: "mcr", total: 0, registros: 0, por_conta: {}, totais_por_banco: {}, linhas: [] }, resumo || {});
+      if (!payload || !Array.isArray(payload.resultados)) return base;
+      const linhas = [];
+      const porConta = {};
+      let total = 0;
+      payload.resultados.forEach((item) => {
+        const codigo = item.codigo_resumido;
+        const chave = codigo != null ? String(codigo) : "";
+        (item.dados || []).forEach((d) => {
+          const natureza = d.codigo_receita || d.Natureza_da_Receita || d["Natureza da Receita"] || "";
+          const valor = parseMoedaFlex(d.valor_receita != null && d.valor_receita !== "" ? d.valor_receita : (d.liquido != null ? d.liquido : d["Líquido"]));
+          linhas.push({
+            banco: item.banco,
+            arquivo: item.arquivo,
+            codigo_resumido: codigo,
+            codigo_receita: natureza,
+            categoria: d.categoria || "",
+            valor: valor,
+          });
+          total += valor;
+          porConta[chave] = (porConta[chave] || 0) + valor;
+        });
+      });
+      const bancos = payload.totais_por_banco || base.totais_por_banco || {};
+      const totalBancos = Object.keys(bancos).reduce((acc, k) => acc + parseMoedaFlex(bancos[k]), 0);
+      return {
+        tipo: "mcr",
+        total: totalBancos > 0 ? totalBancos : total,
+        registros: linhas.length,
+        por_conta: Object.keys(porConta).length ? porConta : (base.por_conta || {}),
+        totais_por_banco: bancos,
+        linhas: linhas,
+      };
+    }
+    function htmlResumoTipo(tipo, resumo, payload) {
+      let dados = resumo || null;
+      if (tipo === "mcr") dados = resumoMcrDoPayload(payload, resumo);
+      if (!dados) return "";
+      const contas = Object.keys(dados.por_conta || {});
+      const linhas = dados.linhas || [];
+      const titulo = { mab: "MAB", mcr: "MCR", renuncias: "Renúncias 91", descontos: "Descontos 93" }[tipo] || tipo;
+      let thead = "<th>Conta</th><th>Detalhe</th><th class='num'>Valor</th>";
+      if (tipo === "mab") thead = "<th>Banco</th><th>Conta</th><th class='num'>Valor</th>";
+      else if (tipo === "mcr") thead = "<th>Banco</th><th>Conta</th><th>Natureza</th><th>Categoria</th><th class='num'>Valor</th>";
+      else thead = "<th>Arquivo</th><th>Conta</th><th>Receita</th><th>Dedução</th><th class='num'>Valor</th>";
+      const rows = linhas.map((l) => {
+        if (tipo === "mab") {
+          return "<tr><td>" + esc(l.banco) + "</td><td>" + esc(nomeConta(l.codigo_resumido)) +
+            '</td><td class="num">' + fmtMoeda(l.valor) + "</td></tr>";
+        }
+        if (tipo === "mcr") {
+          return "<tr><td>" + esc(l.banco) + "</td><td>" + esc(nomeConta(l.codigo_resumido)) +
+            "</td><td>" + esc(l.codigo_receita) + "</td><td>" + esc(l.categoria || "") +
+            '</td><td class="num">' + fmtMoeda(l.valor) + "</td></tr>";
+        }
+        return "<tr><td>" + esc(l.arquivo) + "</td><td>" + esc(nomeConta(l.codigo_resumido)) +
+          "</td><td>" + esc(l.codigo_receita) + "</td><td>" + esc(l.codigo_deducao) +
+          '</td><td class="num">' + fmtMoeda(l.valor) + "</td></tr>";
+      }).join("");
+      const bancos = dados.totais_por_banco || {};
+      const chavesBanco = Object.keys(bancos);
+      const totBancoHtml = tipo === "mcr" && chavesBanco.length
+        ? "<table style='margin:8px 0 12px'><thead><tr><th>Banco</th><th class='num'>Total</th></tr></thead><tbody>" +
+          chavesBanco.map((b) => "<tr><td>" + esc(b) + '</td><td class="num">' + fmtMoeda(bancos[b]) + "</td></tr>").join("") +
+          "<tr><td><strong>Total MCR</strong></td><td class='num'><strong>" + fmtMoeda(dados.total) + "</strong></td></tr>" +
+          "</tbody></table>"
+        : "";
+      return "<div class='card' style='margin-top:10px'><h3>" + titulo +
+        " · " + fmtMoeda(dados.total) + "</h3><p class='muted'>" +
+        contas.map((c) => nomeConta(c) + ": " + fmtMoeda(dados.por_conta[c])).join(" · ") +
+        " · " + (dados.registros || 0) + " linhas" +
+        (payload && payload.data_filtro ? " · filtro " + esc(payload.data_filtro) : "") +
+        "</p>" + totBancoHtml +
+        "<div class='table-wrap'><table><thead><tr>" + thead + "</tr></thead><tbody>" +
+        (rows || "<tr><td colspan='5'>Sem lançamentos neste dia" +
+          (payload && payload.data_filtro ? " (filtro " + esc(payload.data_filtro) + ")" : "") +
+          ".</td></tr>") +
+        "</tbody></table></div></div>";
+    }
+    function htmlDiaPacote(item) {
+      const bateu = item.conferencia_mab_mcr && item.conferencia_mab_mcr.bateu;
+      const tipos = item.tipos || Object.keys(item.resumo || {});
+      const mabVazio = !!(item.mab_vazio);
+      let html = "<div class='day-block card'><h3>" + esc(item.data_alvo) +
+        " <span class='muted'>· MAB filtro " + esc(item.data_mab_filtro || "") + "</span></h3>" +
+        "<p><span class='pill " + (item.sucesso ? "ok" : "err") + "'>" + (item.sucesso ? "gerado" : "com erros") + "</span> ";
+      if (item.conferencia_mab_mcr) {
+        html += "<span class='pill " + (bateu ? "ok" : "warn") + "'>MCR × MAB " + (bateu ? "bateu" : "não bateu") + "</span>";
+      }
+      if (item.calendario_feriados) {
+        html += " <span class='pill ok'>feriados: " + esc(item.calendario_feriados) + "</span>";
+      }
+      html += "</p>";
+      if (mabVazio) {
+        html += "<div class='alert warn' style='margin-top:10px'>" +
+          "<strong>MAB zerado</strong> — filtro usado: <strong>" + esc(item.data_mab_filtro || "") + "</strong>. " +
+          "Isso costuma acontecer quando o dia útil anterior é <strong>feriado</strong> (ex.: 07/09) e não há arquivo FEBRABAN nessa data." +
+          "<ol style='margin:10px 0 0 18px; padding:0'>" +
+          "<li>Clique em <em>Conferir calendário nacional</em> (e, se precisar, no municipal de Contagem).</li>" +
+          "<li>Se o sistema indicar feriado, confira a data sugerida do MAB.</li>" +
+          "<li>Clique em <em>Regenerar</em> para remontar o pacote pulando o feriado.</li>" +
+          "</ol>" +
+          "<p class='muted' style='margin-top:8px'>Renúncias e descontos usam o <strong>dia alvo</strong> (" +
+          esc(item.data_alvo) + "), não o filtro do MAB. Se estiverem zerados, confira se o .xls do dia existe na pasta SAFCI.</p>" +
+          "</div><div class='actions'>" +
+          "<button class='btn ghost btn-feriado' data-cal='nacional' data-alvo='" + esc(item.data_alvo) +
+          "'>1) Conferir calendário nacional</button>" +
+          "<button class='btn ghost btn-feriado' data-cal='municipal' data-alvo='" + esc(item.data_alvo) +
+          "'>2) Conferir calendário municipal (Contagem)</button>" +
+          "</div><div class='feriado-out' data-alvo='" + esc(item.data_alvo) + "'></div>";
+      }
+      tipos.forEach((tipo) => {
+        const payload = (item.conteudo || {})[tipo];
+        html += htmlResumoTipo(tipo, (item.resumo || {})[tipo], payload);
+        const nome = ((item.nomenclatura || {})[tipo]) || (tipo + ".json");
+        if (payload) {
+          html += "<div class='actions'><button class='btn ghost btn-dl-mem' data-nome='" + esc(nome) +
+            "'>Baixar " + tipo.toUpperCase() + "</button></div>";
+        }
+      });
+      if (item.erros && item.erros.length) {
+        html += "<div class='alert err'>" + item.erros.map(esc).join("<br>") + "</div>";
+      }
+      html += "</div>";
+      return html;
+    }
+    function partesDataBR(br) {
+      const m = String(br || "").match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+      if (!m) return null;
+      return { dia: Number(m[1]), mes: Number(m[2]), ano: Number(m[3]), iso: m[3] + "-" + m[2] + "-" + m[1] };
+    }
+    async function conferirFeriado(calendario, dataAlvoBR) {
+      const p = partesDataBR(dataAlvoBR);
+      if (!p) { alert("Data alvo inválida."); return; }
+      const box = document.querySelector(".feriado-out[data-alvo='" + dataAlvoBR + "']");
+      mostrarLoading("Consultando calendário " + calendario);
       try {
-        const d = await getJson("/gerar_pacote_local/?dia=" + p.dia + "&mes=" + p.mes + "&ano=" + p.ano);
-        const bateu = d.conferencia_mab_mcr && d.conferencia_mab_mcr.bateu;
-        const envios = (d.envio_s3 && d.envio_s3.arquivos) || [];
-        $("pacoteOut").innerHTML =
-          "<div class='card'><h3>Resultado</h3>" +
-          "<p><span class='pill " + (d.sucesso ? "ok" : "err") + "'>" + (d.sucesso ? "pacote ok" : "com erros") + "</span> " +
-          "<span class='pill " + (bateu ? "ok" : "warn") + "'>MCR × MAB " + (bateu ? "bateu" : "não bateu") + "</span></p>" +
-          "<table><thead><tr><th>Tipo</th><th>Registros</th><th>S3</th></tr></thead><tbody>" +
-          ["mab","mcr","renuncias","descontos"].map((k) => {
-            const item = envios.find((e) => String(e.tipo || "").toUpperCase() === k.toUpperCase() ||
-              (k === "renuncias" && String(e.tipo).toUpperCase() === "RENUNCIAS") ||
-              (k === "descontos" && String(e.tipo).toUpperCase() === "DESCONTOS"));
-            return "<tr><td>" + k.toUpperCase() + "</td><td>" + ((d.contagens && d.contagens[k]) != null ? d.contagens[k] : "—") +
-              "</td><td>" + (item ? esc(item.file_name) + (item.sucesso ? " · enviado" : " · falhou") : "—") + "</td></tr>";
-          }).join("") + "</tbody></table>" +
-          (d.erros && d.erros.length ? "<div class='alert err'>" + d.erros.map(esc).join("<br>") + "</div>" : "") +
-          "</div>";
-        $("dataS3").value = p.iso;
-        abrirPainel("s3");
-        await listarS3(true);
+        await getJson("/feriados/atualizar/?calendario=" + encodeURIComponent(calendario) + "&ano=" + p.ano);
+        const d = await getJson(
+          "/verificar_feriado_mab/?dia=" + p.dia + "&mes=" + p.mes + "&ano=" + p.ano +
+          "&calendario=" + encodeURIComponent(calendario)
+        );
+        if (!box) return;
+        if (!d.sucesso) {
+          box.innerHTML = "<div class='alert err'>" + esc(d.mensagem || "Falha") + "</div>";
+          return;
+        }
+        let html = "<div class='card' style='margin-top:10px'><h3>Calendário " + esc(calendario) + "</h3>" +
+          "<p>" + esc(d.mensagem || "") + "</p>" +
+          "<table><thead><tr><th>Campo</th><th>Valor</th></tr></thead><tbody>" +
+          "<tr><td>Data alvo</td><td>" + esc(d.data_alvo) + "</td></tr>" +
+          "<tr><td>MAB atual</td><td>" + esc(d.data_mab_atual) +
+          (d.mab_atual_eh_feriado ? " <span class='pill warn'>feriado</span>" :
+            (d.mab_atual_eh_facultativo ? " <span class='pill warn'>facultativo</span>" : "")) +
+          "</td></tr>" +
+          "<tr><td>MAB sugerido</td><td><strong>" + esc(d.data_mab_sugerida) + "</strong></td></tr>" +
+          "</tbody></table>";
+        if ((d.itens_mab || []).length) {
+          html += "<p class='muted' style='margin-top:8px'>" +
+            (d.itens_mab || []).map((i) => esc((i.name || "") + " (" + (i.type || "") + ")")).join(" · ") +
+            "</p>";
+        }
+        if (d.deve_ajustar) {
+          html += "<div class='actions' style='margin-top:10px'>" +
+            "<button class='btn btn-regen-feriado' data-cal='" + esc(calendario) +
+            "' data-alvo='" + esc(dataAlvoBR) + "' data-sugerido='" + esc(d.data_mab_sugerida) +
+            "'>3) Regenerar pacote com MAB em " + esc(d.data_mab_sugerida) + "</button></div>" +
+            "<p class='muted'>Isso remonta MAB/MCR/renúncias/descontos do dia alvo, usando o MAB do dia útil anterior ao feriado.</p>";
+        }
+        html += "</div>";
+        box.innerHTML = html;
+        box.querySelectorAll(".btn-regen-feriado").forEach((btn) => {
+          btn.addEventListener("click", () => regenerarComFeriado(btn.getAttribute("data-cal"), btn.getAttribute("data-alvo")));
+        });
+      } catch (e) {
+        if (box) box.innerHTML = "<div class='alert err'>" + esc(e.message) + "</div>";
+      } finally {
+        ocultarLoading();
+      }
+    }
+    async function regenerarComFeriado(calendario, dataAlvoBR) {
+      const p = partesDataBR(dataAlvoBR);
+      if (!p) return;
+      const tipos = tiposSelecionados();
+      mostrarLoading("Regenerando com calendário " + calendario);
+      try {
+        const qs = new URLSearchParams({
+          data_inicio: p.iso,
+          data_final: p.iso,
+          tipos: tipos.join(","),
+          enviar_s3: "false",
+          salvar_local: "true",
+          calendario_feriados: calendario,
+        });
+        const d = await getJson("/gerar_pacote_local/?" + qs.toString());
+        ultimoPacote = d;
+        renderPacote(d, "pacoteOut");
       } catch (e) {
         $("pacoteOut").innerHTML = "<div class='alert err'>" + esc(e.message) + "</div>";
       } finally {
         ocultarLoading();
       }
+    }
+    function bindDownloads(container, dias) {
+      container.querySelectorAll(".btn-dl-mem").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const nome = btn.getAttribute("data-nome");
+          for (const item of dias) {
+            const nomes = item.nomenclatura || {};
+            for (const tipo of Object.keys(item.conteudo || {})) {
+              if (nomes[tipo] === nome || tipo + ".json" === nome) {
+                baixarJson(nome, item.conteudo[tipo]);
+                return;
+              }
+            }
+          }
+        });
+      });
+    }
+    function bindFeriados(container) {
+      container.querySelectorAll(".btn-feriado").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          conferirFeriado(btn.getAttribute("data-cal"), btn.getAttribute("data-alvo"));
+        });
+      });
+    }
+    function renderPacote(d, destino) {
+      const el = $(destino || "pacoteOut");
+      const dias = d.dias || [];
+      let html = "<div class='card'><h3>Resultado da geração</h3>" +
+        "<p><span class='pill " + (d.sucesso ? "ok" : "err") + "'>" + (d.sucesso ? "ok para conferir" : "com erros") + "</span> " +
+        "<span class='pill warn'>ainda não enviado</span>" +
+        (d.alerta_zerado ? " <span class='pill warn'>MAB zerado — confira feriado</span>" : "") +
+        "</p>" +
+        "<p class='muted'>Período " + esc((d.periodo && d.periodo.inicio) || "") + " a " +
+        esc((d.periodo && d.periodo.fim) || "") + " · tipos: " + esc((d.tipos || []).join(", ")) + "</p>";
+      if (d.erros && d.erros.length) {
+        html += "<div class='alert err'>" + d.erros.map(esc).join("<br>") + "</div>";
+      }
+      html += "</div>";
+      dias.forEach((item) => { html += htmlDiaPacote(item); });
+      el.innerHTML = html;
+      bindDownloads(el, dias);
+      bindFeriados(el);
+    }
+
+    async function gerarArquivos(tipos, destino, idIni, idFim) {
+      const p = qsPeriodo(
+        { tipos: tipos.join(","), enviar_s3: "false", salvar_local: "true" },
+        idIni || "dataAlvo",
+        idFim || "dataAlvoFim"
+      );
+      if (!p) {
+        $(destino).innerHTML = "<div class='alert err'>Informe o período.</div>";
+        return;
+      }
+      if (!tipos.length) {
+        $(destino).innerHTML = "<div class='alert err'>Marque pelo menos um tipo de arquivo.</div>";
+        return;
+      }
+      mostrarLoading("Gerando arquivos para conferência");
+      try {
+        const d = await getJson("/gerar_pacote_local/?" + p.qs.toString());
+        ultimoPacote = d;
+        renderPacote(d, destino);
+      } catch (e) {
+        $(destino).innerHTML = "<div class='alert err'>" + esc(e.message) + "</div>";
+      } finally {
+        ocultarLoading();
+      }
+    }
+
+    $("btnGerar").addEventListener("click", () => gerarArquivos(tiposSelecionados(), "pacoteOut"));
+    $("dataFerrIni").addEventListener("change", atualizarRegraFerr);
+    $("dataFerrFim").addEventListener("change", atualizarRegraFerr);
+
+    let pendenteEnvio = null;
+
+    function htmlConferenciaNomes(conf) {
+      if (!conf) return "";
+      const dias = conf.dias || (conf.comparacao ? [conf] : []);
+      let html = "<div class='card'><h3>Conferência de nomenclatura</h3>" +
+        "<p><span class='pill " + (conf.divergente ? "warn" : "ok") + "'>" +
+        (conf.divergente ? "fontes divergem" : "fontes alinhadas") + "</span> " +
+        esc(conf.mensagem || "") + "</p>";
+      dias.forEach((dia) => {
+        html += "<h3 style='margin-top:14px'>" + esc(dia.data_alvo || "") + "</h3>";
+        html += "<p class='muted'>Banco: " + (dia.banco_ok ? "ok" : "falhou") +
+          " · Índice local: " + (dia.local_ok ? "ok" : "falhou") + "</p>";
+        html += "<table><thead><tr><th>Tipo</th><th>API Banco (atual → próximo)</th><th>Índice local (atual → próximo)</th><th>Status</th></tr></thead><tbody>";
+        (dia.comparacao || []).forEach((c) => {
+          const b = c.banco || {};
+          const l = c.local || {};
+          html += "<tr><td>" + esc(c.tipo) + "</td><td>" +
+            esc(b.file_name || "—") + " <span class='pill " + (b.presente ? "ok" : "warn") + "'>" + esc(b.versao || "ausente") + "</span><br><strong>→ " +
+            esc(b.proximo_nome || "—") + "</strong></td><td>" +
+            esc(l.file_name || "—") + " <span class='pill " + (l.presente ? "ok" : "warn") + "'>" + esc(l.versao || "ausente") + "</span><br><strong>→ " +
+            esc(l.proximo_nome || "—") + "</strong></td><td>" +
+            (c.divergente
+              ? "<span class='pill warn'>diferente</span>"
+              : "<span class='pill ok'>igual</span>") +
+            "</td></tr>";
+        });
+        html += "</tbody></table>";
+      });
+      if (conf.divergente) {
+        html += "<div class='alert warn' style='margin-top:12px'>Escolha qual fonte usar para o nome/RET do envio.</div>" +
+          "<div class='actions'>" +
+          "<button class='btn' id='btnSeguirBanco'>Seguir API Banco</button>" +
+          "<button class='btn ghost' id='btnSeguirLocal'>Seguir índice local (S3)</button>" +
+          "</div>";
+      }
+      html += "</div>";
+      return html;
+    }
+
+    function htmlResultadoEnvio(d) {
+      let html = "<div class='card'><h3>Envio ao S3</h3>" +
+        "<p><span class='pill " + (d.sucesso ? "ok" : "err") + "'>" +
+        (d.sucesso ? "enviado" : "falhou") + "</span> " + esc(d.mensagem || "") +
+        (d.fonte_nomenclatura ? " · fonte: " + esc(d.fonte_nomenclatura) : "") + "</p>";
+      (d.envios || []).forEach((env) => {
+        html += "<h3 style='margin-top:14px'>" + esc(env.data_alvo) + "</h3><table><thead><tr><th>Tipo</th><th>Arquivo</th><th>Status</th></tr></thead><tbody>";
+        (env.arquivos || []).forEach((a) => {
+          html += "<tr><td>" + esc(a.tipo) + "</td><td>" + esc(a.file_name) +
+            "</td><td><span class='pill " + (a.sucesso ? "ok" : "err") + "'>" +
+            (a.sucesso ? (a.retificacao ? ("RET" + a.retificacao) : "enviado") : "falhou") +
+            "</span> " + esc(a.mensagem || "") + "</td></tr>";
+        });
+        html += "</tbody></table>";
+        if (env.erros && env.erros.length) {
+          html += "<div class='alert err'>" + env.erros.map(esc).join("<br>") + "</div>";
+        }
+      });
+      if (d.erros && d.erros.length) {
+        html += "<div class='alert err'>" + d.erros.map(esc).join("<br>") + "</div>";
+      }
+      html += "</div>";
+      return html;
+    }
+
+    function bindEscolhaFonte() {
+      const btnB = $("btnSeguirBanco");
+      const btnL = $("btnSeguirLocal");
+      if (btnB) btnB.addEventListener("click", () => enviarComFonte("banco"));
+      if (btnL) btnL.addEventListener("click", () => enviarComFonte("local"));
+    }
+
+    async function enviarComFonte(fonte) {
+      if (!pendenteEnvio) {
+        $("pacoteOut").innerHTML = "<div class='alert err'>Nada pendente para enviar. Clique em Enviar novamente.</div>";
+        return;
+      }
+      const qs = new URLSearchParams(pendenteEnvio.qs);
+      const isoData = pendenteEnvio.ini && pendenteEnvio.ini.iso;
+      qs.set("fonte_nomenclatura", fonte);
+      mostrarLoading("Enviando com nomenclatura " + fonte);
+      try {
+        const d = await getJson("/enviar_pacote_s3/?" + qs.toString());
+        pendenteEnvio = null;
+        $("pacoteOut").innerHTML = htmlResultadoEnvio(d) + ($("pacoteOut").innerHTML || "");
+        if (isoData) $("dataS3").value = isoData;
+      } catch (e) {
+        $("pacoteOut").innerHTML = "<div class='alert err'>" + esc(e.message) + "</div>";
+      } finally {
+        ocultarLoading();
+      }
+    }
+
+    async function conferirEEnviar(autoEnviar) {
+      const tipos = tiposSelecionados();
+      const p = qsPeriodo({ tipos: tipos.join(",") });
+      if (!p) { $("pacoteOut").innerHTML = "<div class='alert err'>Informe o período.</div>"; return; }
+      if (!tipos.length) { $("pacoteOut").innerHTML = "<div class='alert err'>Marque os tipos.</div>"; return; }
+      mostrarLoading(autoEnviar ? "Conferindo nomes e preparando envio" : "Conferindo API Banco × índice local");
+      try {
+        const conf = await getJson("/conferir_nomenclatura_s3/?" + p.qs.toString());
+        pendenteEnvio = { qs: p.qs.toString(), ini: p.ini, fim: p.fim, tipos };
+        $("pacoteOut").innerHTML = htmlConferenciaNomes(conf);
+        bindEscolhaFonte();
+        if (!autoEnviar) return;
+        if (conf.divergente) {
+          // já mostrou a escolha
+          return;
+        }
+        // alinhado: envia seguindo banco (ou local se banco falhou)
+        const fonte = conf.dias && conf.dias[0] && conf.dias[0].banco_ok === false ? "local" : "banco";
+        await enviarComFonte(fonte);
+      } catch (e) {
+        $("pacoteOut").innerHTML = "<div class='alert err'>" + esc(e.message) + "</div>";
+      } finally {
+        ocultarLoading();
+      }
+    }
+
+    $("btnConferirNomes").addEventListener("click", () => conferirEEnviar(false));
+    $("btnEnviarS3").addEventListener("click", () => conferirEEnviar(true));
+
+    let fonteS3Atual = "banco";
+    let s3Estado = { arquivos: [], data: null, fonte: "banco" };
+
+    function atualizarDicaFonteS3() {
+      $("dicaFonteS3").innerHTML = fonteS3Atual === "banco"
+        ? 'API Banco: <code>listar-arquivos?data=dd/mm/aaaa</code> com <code>BANCO_API_KEY</code> do .env. S3/upload usa <code>AWS_API_KEY</code>.'
+        : "Índice local: arquivos registrados após envio (cache). Clique na linha para abrir o JSON guardado.";
+    }
+    document.querySelectorAll("#fonteS3 button").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        document.querySelectorAll("#fonteS3 button").forEach((b) => b.classList.remove("active"));
+        btn.classList.add("active");
+        fonteS3Atual = btn.getAttribute("data-fonte");
+        atualizarDicaFonteS3();
+        $("s3Out").innerHTML = "";
+      });
     });
+
+    function abrirModalArquivo(titulo, sub, conteudo, aviso) {
+      $("modalTitulo").textContent = titulo || "Detalhe do arquivo";
+      $("modalSub").textContent = sub || "";
+      let html = "";
+      if (aviso) html += "<div class='alert warn' style='margin-bottom:12px'>" + esc(aviso) + "</div>";
+      if (conteudo == null) {
+        html += "<div class='alert err'>Sem conteúdo para exibir.</div>";
+      } else {
+        html += "<pre>" + esc(typeof conteudo === "string" ? conteudo : JSON.stringify(conteudo, null, 2)) + "</pre>";
+      }
+      $("modalBody").innerHTML = html;
+      $("modalArquivo").classList.add("visible");
+    }
+    function fecharModalArquivo() {
+      $("modalArquivo").classList.remove("visible");
+    }
+    $("btnFecharModal").addEventListener("click", fecharModalArquivo);
+    $("modalArquivo").addEventListener("click", (e) => {
+      if (e.target === $("modalArquivo")) fecharModalArquivo();
+    });
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") fecharModalArquivo();
+    });
+
+    async function abrirDetalheS3(idx) {
+      const item = (s3Estado.arquivos || [])[idx];
+      if (!item) return;
+      const titulo = item.file_name || item.tipo || "Arquivo";
+      const sub = (item.fonte || s3Estado.fonte || "") + " · " + (item.tipo || "") +
+        (item.versao ? " · " + item.versao : "") +
+        (s3Estado.data ? " · " + s3Estado.data : "");
+      mostrarLoading("Abrindo detalhe");
+      try {
+        if (item.conteudo != null) {
+          abrirModalArquivo(titulo, sub, item.conteudo);
+          return;
+        }
+        if (item.arquivo_id) {
+          const d = await getJson("/api/obter-arquivo/" + encodeURIComponent(item.arquivo_id));
+          if (d.sucesso) {
+            abrirModalArquivo(titulo, sub + " · índice local", d.arquivo || d.metadados, d.mensagem);
+            return;
+          }
+        }
+        if (item.tipo && item.file_name && (item.fonte === "banco" || s3Estado.fonte === "banco")) {
+          const d = await getJson(
+            "/api/get-remoto?tipo=" + encodeURIComponent(item.tipo) +
+            "&nome=" + encodeURIComponent(item.file_name)
+          );
+          if (d.sucesso && d.conteudo != null) {
+            abrirModalArquivo(titulo, sub + " · API Banco", d.conteudo, d.mensagem);
+            return;
+          }
+          // fallback: cópia local em saida_pacotes
+          if (s3Estado.data) {
+            const local = await getJson(
+              "/api/arquivo-saida-local?data=" + encodeURIComponent(s3Estado.data) +
+              "&tipo=" + encodeURIComponent(item.tipo)
+            );
+            if (local.sucesso) {
+              abrirModalArquivo(
+                titulo,
+                sub + " · saida_pacotes",
+                local.conteudo,
+                (d.mensagem ? d.mensagem + " " : "") + "Mostrando a cópia local gerada antes do envio."
+              );
+              return;
+            }
+          }
+          abrirModalArquivo(titulo, sub, d.metadados || item, d.mensagem || "Sem conteúdo disponível.");
+          return;
+        }
+        if (s3Estado.data && item.tipo) {
+          const local = await getJson(
+            "/api/arquivo-saida-local?data=" + encodeURIComponent(s3Estado.data) +
+            "&tipo=" + encodeURIComponent(item.tipo)
+          );
+          if (local.sucesso) {
+            abrirModalArquivo(titulo, sub + " · saida_pacotes", local.conteudo);
+            return;
+          }
+          abrirModalArquivo(titulo, sub, item, local.mensagem || "Arquivo sem conteúdo carregado.");
+          return;
+        }
+        abrirModalArquivo(titulo, sub, item, "Metadados apenas — conteúdo não disponível.");
+      } catch (e) {
+        abrirModalArquivo(titulo, sub, null, e.message);
+      } finally {
+        ocultarLoading();
+      }
+    }
 
     async function listarS3(silencioso) {
       const p = partesData($("dataS3").value || $("dataAlvo").value);
       if (!p) { $("s3Out").innerHTML = "<div class='alert err'>Informe a data.</div>"; return; }
-      if (!silencioso) mostrarLoading("Consultando S3");
+      if (!silencioso) mostrarLoading(fonteS3Atual === "banco" ? "Consultando API Banco" : "Consultando índice local");
       try {
-        const d = await getJson("/api/listar-arquivos-remoto?data=" + encodeURIComponent(fmtBR(p)));
-        if (!d.sucesso) {
-          $("s3Out").innerHTML = "<div class='alert err'>" + esc(d.mensagem || "Falha") + "</div>";
-          return;
+        if (fonteS3Atual === "banco") {
+          const d = await getJson("/api/listar-arquivos-remoto?data=" + encodeURIComponent(fmtBR(p)));
+          if (!d.sucesso) {
+            $("s3Out").innerHTML = "<div class='alert err'>" + esc(d.mensagem || "Falha") + "</div>";
+            return;
+          }
+          const versoes = d.versoes || d.tipos || [];
+          const arquivos = versoes.map((t) => ({
+            fonte: "banco",
+            tipo: t.tipo,
+            file_name: t.file_name,
+            presente: !!t.presente,
+            status: t.status,
+            created_at: t.created_at,
+            retificacao: t.retificacao,
+            versao: t.versao || (t.retificacao > 0 ? ("RET" + t.retificacao) : (t.presente ? "original" : "ausente")),
+            conteudo: t.content || t.conteudo || t.dados || null,
+          }));
+          s3Estado = { arquivos, data: d.data || fmtBR(p), fonte: "banco" };
+          $("s3Out").innerHTML =
+            '<div class="stats" style="grid-template-columns:repeat(4,minmax(0,1fr))">' +
+              '<div class="stat"><div class="v">' + (d.presentes || 0) + "/" + (d.total || arquivos.length) + '</div><div class="l">Presentes</div></div>' +
+              '<div class="stat"><div class="v">' + (d.retificados || 0) + '</div><div class="l">Com RET</div></div>' +
+              '<div class="stat"><div class="v">Banco</div><div class="l">API listar</div></div>' +
+              '<div class="stat"><div class="v">' + esc(s3Estado.data) + '</div><div class="l">Data</div></div>' +
+            "</div>" +
+            "<table><thead><tr><th>Tipo</th><th>Versão</th><th>Arquivo</th><th>Status</th><th>Criado</th><th></th></tr></thead><tbody>" +
+            arquivos.map((t, i) => {
+              const ok = !!t.presente;
+              return "<tr class='" + (ok ? "clickable" : "") + "' data-idx='" + i + "'><td>" + esc(t.tipo) +
+                "</td><td><span class='pill " + (t.retificacao > 0 ? "warn" : (ok ? "ok" : "warn")) + "'>" +
+                esc(t.versao) + "</span></td><td>" + esc(t.file_name || "—") + "</td><td>" + esc(t.status || "") +
+                "</td><td>" + esc(t.created_at || "—") + "</td><td>" +
+                (ok ? "<button type='button' class='btn ghost btn-ver-s3' data-idx='" + i + "'>Ver</button>" : "—") +
+                "</td></tr>";
+            }).join("") + "</tbody></table>" +
+            "<p class='muted' style='margin-top:10px'>Clique em <strong>Ver</strong> ou na linha para abrir o detalhe.</p>";
+        } else {
+          const d = await getJson("/api/listar-indice-local?data=" + encodeURIComponent(fmtBR(p)));
+          if (!d.sucesso) {
+            $("s3Out").innerHTML = "<div class='alert err'>" + esc(d.mensagem || "Falha") + "</div>";
+            return;
+          }
+          const arquivos = d.arquivos || [];
+          s3Estado = { arquivos, data: d.data || fmtBR(p), fonte: "local" };
+          $("s3Out").innerHTML =
+            '<div class="stats" style="grid-template-columns:repeat(3,minmax(0,1fr))">' +
+              '<div class="stat"><div class="v">' + arquivos.length + '</div><div class="l">Arquivos</div></div>' +
+              '<div class="stat"><div class="v">Local</div><div class="l">Índice / cache</div></div>' +
+              '<div class="stat"><div class="v">' + esc(s3Estado.data) + '</div><div class="l">Data</div></div>' +
+            "</div>" +
+            (arquivos.length
+              ? "<table><thead><tr><th>Tipo</th><th>Arquivo</th><th>Registros</th><th>Upload</th><th></th></tr></thead><tbody>" +
+                arquivos.map((a, i) =>
+                  "<tr class='clickable' data-idx='" + i + "'><td>" + esc(a.tipo) + "</td><td>" + esc(a.file_name || "—") +
+                  '</td><td class="num">' + (a.total_registros != null ? a.total_registros : "—") +
+                  "</td><td>" + esc(a.created_at || "—") +
+                  "</td><td><button type='button' class='btn ghost btn-ver-s3' data-idx='" + i + "'>Ver</button></td></tr>"
+                ).join("") + "</tbody></table>"
+              : "<p class='muted' style='margin-top:12px'>Nenhum arquivo no índice local para esta data.</p>");
         }
-        const versoes = d.versoes || d.tipos || [];
-        const historico = d.historico_local || [];
-        $("s3Out").innerHTML =
-          '<div class="stats" style="grid-template-columns:repeat(4,minmax(0,1fr))">' +
-            '<div class="stat"><div class="v">' + (d.presentes || 0) + "/" + (d.total || versoes.length) + '</div><div class="l">Presentes</div></div>' +
-            '<div class="stat"><div class="v">' + (d.retificados || 0) + '</div><div class="l">Com RET</div></div>' +
-            '<div class="stat"><div class="v">' + historico.length + '</div><div class="l">Histórico local</div></div>' +
-            '<div class="stat"><div class="v">' + esc(d.data || fmtBR(p)) + '</div><div class="l">Data</div></div>' +
-          "</div>" +
-          "<table><thead><tr><th>Tipo</th><th>Versão</th><th>Arquivo</th><th>Status</th><th>Criado</th></tr></thead><tbody>" +
-          versoes.map((t) => {
-            const ok = !!t.presente;
-            const versao = t.versao || (t.retificacao > 0 ? ("RET" + t.retificacao) : (ok ? "original" : "ausente"));
-            return "<tr><td>" + esc(t.tipo) + "</td><td><span class='pill " + (t.retificacao > 0 ? "warn" : (ok ? "ok" : "warn")) + "'>" +
-              esc(versao) + "</span></td><td>" + esc(t.file_name || "—") + "</td><td>" + esc(t.status || "") +
-              "</td><td>" + esc(t.created_at || "—") + "</td></tr>";
-          }).join("") + "</tbody></table>" +
-          (historico.length
-            ? "<h3 style='margin-top:18px'>Histórico local</h3><table><thead><tr><th>Tipo</th><th>Versão</th><th>Arquivo</th><th>Upload</th></tr></thead><tbody>" +
-              historico.map((h) => "<tr><td>" + esc(h.tipo) + "</td><td>" + esc(h.versao) + "</td><td>" + esc(h.file_name) +
-                "</td><td>" + esc(h.data_upload || "—") + "</td></tr>").join("") + "</tbody></table>"
-            : "<p class='muted' style='margin-top:12px'>Sem histórico local nesta data.</p>");
+        $("s3Out").querySelectorAll(".btn-ver-s3, tr.clickable").forEach((el) => {
+          el.addEventListener("click", (ev) => {
+            ev.stopPropagation();
+            const idx = Number(el.getAttribute("data-idx"));
+            if (!Number.isNaN(idx)) abrirDetalheS3(idx);
+          });
+        });
       } catch (e) {
         $("s3Out").innerHTML = "<div class='alert err'>" + esc(e.message) + "</div>";
       } finally {
@@ -1051,33 +1724,18 @@
       }
     }
     $("btnListarS3").addEventListener("click", () => listarS3(false));
+    atualizarDicaFonteS3();
 
-    async function baixar(url, nome) {
-      const p = partesData($("dataAlvo").value || $("govData").value);
-      if (!p) { alert("Informe uma data no pacote ou na razão."); return; }
-      mostrarLoading("Baixando " + nome);
-      try {
-        const resp = await fetch(url + "?dia=" + p.dia + "&mes=" + p.mes + "&ano=" + p.ano);
-        if (!resp.ok) throw new Error("HTTP " + resp.status);
-        const blob = await resp.blob();
-        const a = document.createElement("a");
-        a.href = URL.createObjectURL(blob);
-        a.download = nome + "_" + p.iso + ".json";
-        a.click();
-        URL.revokeObjectURL(a.href);
-      } catch (e) { alert(e.message); }
-      finally { ocultarLoading(); }
-    }
-    document.querySelectorAll("[data-dl]").forEach((btn) => {
+    document.querySelectorAll("[data-tipo]").forEach((btn) => {
       btn.addEventListener("click", () => {
-        const rota = btn.getAttribute("data-dl");
-        baixar(rota, rota.replace(/\//g, "").replace("download_", "").replace("_json", ""));
+        const tipo = btn.getAttribute("data-tipo");
+        gerarArquivos([tipo], "avulsoOut", "dataFerrIni", "dataFerrFim");
       });
     });
     document.querySelectorAll("[data-rel]").forEach((btn) => {
       btn.addEventListener("click", async () => {
-        const p = partesData($("dataAlvo").value || $("govData").value);
-        if (!p) { alert("Informe uma data."); return; }
+        const p = partesData($("dataFerrIni").value || $("dataAlvo").value || $("govData").value);
+        if (!p) { alert("Informe a data início em Ferramentas."); return; }
         const tipo = btn.getAttribute("data-rel");
         mostrarLoading("Gerando relatório");
         try {
@@ -1117,8 +1775,12 @@
       $("govData").value = iso;
       $("govDataFim").value = iso;
       $("dataAlvo").value = iso;
+      $("dataAlvoFim").value = iso;
+      $("dataFerrIni").value = iso;
+      $("dataFerrFim").value = iso;
       $("dataS3").value = iso;
       atualizarRegra();
+      atualizarRegraFerr();
       renderChips();
       const hash = (location.hash || "").replace("#", "");
       if (hash && $("panel-" + hash)) abrirPainel(hash);
@@ -1126,10 +1788,12 @@
       getJson("/status_fontes/").then((d) => {
         setChip("chipGov", !!(d.gov && d.gov.sucesso), d.gov && d.gov.sucesso ? "ok" : "falhou");
         setChip("chipAws", !!(d.aws && d.aws.sucesso), d.aws && d.aws.sucesso ? "ok" : "falhou");
+        setChip("chipBanco", !!(d.banco && d.banco.sucesso), d.banco && d.banco.sucesso ? "ok" : "falhou");
         setChip("chipShare", !!(d.share && d.share.sucesso), d.share && d.share.sucesso ? "ok" : "sem acesso");
       }).catch(() => {
         setChip("chipGov", false, "erro");
         setChip("chipAws", false, "erro");
+        setChip("chipBanco", false, "erro");
         setChip("chipShare", false, "erro");
       });
     })();

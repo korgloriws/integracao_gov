@@ -1,14 +1,23 @@
-from fastapi import FastAPI, APIRouter, Request, UploadFile, File
+from fastapi import FastAPI, APIRouter, Request, UploadFile, File, Header
 from fastapi.responses import JSONResponse, RedirectResponse
 import json
 import os
 from aws_manager_visivel import AWSManagerVisivel
 import requests
+from typing import Optional
 
 app = FastAPI(title="AWS Manager Interface")
 router = APIRouter()
 
 aws_manager = AWSManagerVisivel()
+
+
+def _mgr_banco(x_banco_api_key: Optional[str] = None) -> AWSManagerVisivel:
+    """Usa a senha digitada na tela, se houver; senão BANCO_API_KEY do .env."""
+    chave = (x_banco_api_key or "").strip()
+    if chave:
+        return AWSManagerVisivel(banco_api_key=chave)
+    return aws_manager
 
 @router.get("/aws", include_in_schema=False)
 async def aws_home():
@@ -42,6 +51,14 @@ async def testar_conexao():
                 "mensagem": f"Erro de conexão: {str(e)}",
                 "dados": None
             })
+    return JSONResponse(content=resultado)
+
+
+@router.get("/api/testar-banco")
+async def testar_banco(
+    x_banco_api_key: Optional[str] = Header(None, alias="X-Banco-Api-Key"),
+):
+    resultado = _mgr_banco(x_banco_api_key).testar_conexao_banco()
     return JSONResponse(content=resultado)
 
 @router.post("/api/enviar-dados")
@@ -170,8 +187,12 @@ async def salvar_estrutura(request: Request):
 
 
 @router.get("/api/get-remoto")
-async def get_remoto(tipo: str, nome: str):
-    resultado = aws_manager.baixar_arquivo_por_tipo_nome(tipo, nome)
+async def get_remoto(
+    tipo: str,
+    nome: str,
+    x_banco_api_key: Optional[str] = Header(None, alias="X-Banco-Api-Key"),
+):
+    resultado = _mgr_banco(x_banco_api_key).baixar_arquivo_por_tipo_nome(tipo, nome)
     return JSONResponse(content=resultado)
 
 #
@@ -193,9 +214,119 @@ async def get_remoto_por_id(arquivo_id: str):
 
 
 @router.get("/api/listar-arquivos-remoto")
-async def listar_arquivos_remoto(data: str):
-    resultado = aws_manager.listar_arquivos_por_data(data)
+async def listar_arquivos_remoto(
+    data: str,
+    x_banco_api_key: Optional[str] = Header(None, alias="X-Banco-Api-Key"),
+):
+    resultado = _mgr_banco(x_banco_api_key).listar_arquivos_por_data(data)
     return JSONResponse(content=resultado)
+
+
+@router.get("/api/listar-indice-local")
+async def listar_indice_local(data: str = ""):
+    """Lista o índice local (cache) filtrando por data dd/mm/aaaa quando informada."""
+    resultado = aws_manager.listar_arquivos_por_pasta()
+    if not resultado.get("sucesso"):
+        return JSONResponse(content=resultado)
+
+    data_ref = str(data or "").strip().replace("-", "/")
+    arquivos = []
+    pastas = resultado.get("pastas") or {}
+    for nome_pasta, pasta in pastas.items():
+        for arq in pasta.get("arquivos") or []:
+            filtro = str(arq.get("data_filtro") or (arq.get("dados") or {}).get("data_filtro") or "")
+            filtro_norm = filtro.replace("-", "/")
+            if data_ref and filtro_norm and filtro_norm != data_ref:
+                # também aceita data_arrecadacao
+                arrec = str(
+                    arq.get("data_arrecadacao")
+                    or (arq.get("dados") or {}).get("data_arrecadacao")
+                    or ""
+                ).replace("-", "/")
+                if arrec != data_ref:
+                    continue
+            arquivos.append({
+                "fonte": "indice_local",
+                "pasta": nome_pasta,
+                "tipo": arq.get("tipo") or nome_pasta,
+                "arquivo_id": arq.get("arquivo_id"),
+                "file_name": arq.get("nome_arquivo"),
+                "status": arq.get("status"),
+                "created_at": arq.get("data_upload"),
+                "data_filtro": arq.get("data_filtro"),
+                "total_registros": arq.get("total_registros"),
+                "presente": True,
+            })
+    for arq in resultado.get("arquivos_sem_pasta") or []:
+        filtro = str(arq.get("data_filtro") or "").replace("-", "/")
+        if data_ref and filtro and filtro != data_ref:
+            continue
+        arquivos.append({
+            "fonte": "indice_local",
+            "pasta": "sem_pasta",
+            "tipo": arq.get("tipo") or "OUTROS",
+            "arquivo_id": arq.get("arquivo_id"),
+            "file_name": arq.get("nome_arquivo"),
+            "status": arq.get("status"),
+            "created_at": arq.get("data_upload"),
+            "data_filtro": arq.get("data_filtro"),
+            "total_registros": arq.get("total_registros"),
+            "presente": True,
+        })
+
+    return JSONResponse(content={
+        "sucesso": True,
+        "fonte": "indice_local",
+        "data": data_ref or None,
+        "arquivos": arquivos,
+        "total": len(arquivos),
+    })
+
+
+@router.get("/api/arquivo-saida-local")
+async def arquivo_saida_local(data: str, tipo: str):
+    """Abre o JSON gravado em saida_pacotes/YYYY-MM-DD/."""
+    from datetime import datetime
+    from carregar_env import diretorio_projeto
+
+    data_ref = str(data or "").strip().replace("-", "/")
+    tipo_l = str(tipo or "").strip().lower()
+    mapa = {
+        "mab": "mab",
+        "mcr": "mcr",
+        "renuncias": "renuncias",
+        "renuncia": "renuncias",
+        "descontos": "descontos",
+        "desconto": "descontos",
+    }
+    chave = mapa.get(tipo_l)
+    if not chave:
+        return JSONResponse(content={"sucesso": False, "mensagem": "Tipo inválido. Use MAB, MCR, RENUNCIAS ou DESCONTOS."})
+    try:
+        dt = datetime.strptime(data_ref, "%d/%m/%Y")
+    except ValueError:
+        return JSONResponse(content={"sucesso": False, "mensagem": "Data inválida. Use dd/mm/aaaa."})
+
+    nome = f"{chave}_dados_{dt.day:02d}_{dt.month:02d}_{dt.year}.json"
+    caminho = os.path.join(diretorio_projeto(), "saida_pacotes", dt.strftime("%Y-%m-%d"), nome)
+    if not os.path.exists(caminho):
+        return JSONResponse(content={
+            "sucesso": False,
+            "mensagem": f"Arquivo local não encontrado: {nome}",
+            "caminho": caminho,
+        })
+    try:
+        with open(caminho, "r", encoding="utf-8") as f:
+            conteudo = json.load(f)
+        return JSONResponse(content={
+            "sucesso": True,
+            "fonte": "saida_pacotes",
+            "file_name": nome,
+            "caminho": caminho,
+            "conteudo": conteudo,
+        })
+    except Exception as e:
+        return JSONResponse(content={"sucesso": False, "mensagem": str(e)})
 
 
 @router.get("/api/listar-remoto")

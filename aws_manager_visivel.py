@@ -13,40 +13,55 @@ from carregar_env import carregar_env
 carregar_env()
 
 class AWSManagerVisivel:
-    def __init__(self, api_key: str = None):
+    def __init__(self, api_key: str = None, banco_api_key: str = None):
         carregar_env()
         self.AWS_API_URL = os.getenv(
             "API_URL",
             "https://v60yr1ma4f.execute-api.sa-east-1.amazonaws.com/prod/upload-arquivos",
         )
+        # S3 / upload
         self.api_key = (api_key or os.getenv("AWS_API_KEY") or "").strip()
-        self.headers = {
-            "Content-Type": "application/json"
-        }
-        self.headers_get = {
-            "Accept": "application/json"
-        }
+        # API Banco / listar-arquivos — se vazio, reutiliza a chave S3
+        if banco_api_key is not None:
+            self.banco_api_key = str(banco_api_key).strip()
+        else:
+            self.banco_api_key = (os.getenv("BANCO_API_KEY") or "").strip() or self.api_key
+        self.BANCO_API_URL = (
+            os.getenv("BANCO_API_URL")
+            or f"{self.AWS_API_URL.rsplit('/', 1)[0]}/listar-arquivos"
+        ).strip()
+
+        self.headers = {"Content-Type": "application/json"}
+        self.headers_get = {"Accept": "application/json"}
+        self.headers_banco = {"Accept": "application/json"}
         if self.api_key:
             self.headers["x-api-key"] = self.api_key
             self.headers_get["x-api-key"] = self.api_key
+        if self.banco_api_key:
+            self.headers_banco["x-api-key"] = self.banco_api_key
 
     def _api_base_prod(self) -> str:
         return self.AWS_API_URL.rsplit("/", 1)[0]
 
     @property
     def LISTAR_API_URL(self) -> str:
-        return f"{self._api_base_prod()}/listar-arquivos"
+        return self.BANCO_API_URL or f"{self._api_base_prod()}/listar-arquivos"
 
     def listar_arquivos_por_data(self, data: str) -> Dict[str, Any]:
-        """GET /prod/listar-arquivos?data=dd/mm/aaaa"""
+        """GET API Banco /listar-arquivos?data=dd/mm/aaaa (usa BANCO_API_KEY)."""
         try:
             data_param = str(data or "").strip()
             if not data_param:
                 return {"sucesso": False, "mensagem": "Informe a data no formato dd/mm/aaaa"}
+            if not self.banco_api_key:
+                return {
+                    "sucesso": False,
+                    "mensagem": "BANCO_API_KEY vazia. Preencha no .env ou digite a senha na tela.",
+                }
 
             response = requests.get(
                 self.LISTAR_API_URL,
-                headers=self.headers_get,
+                headers=self.headers_banco,
                 params={"data": data_param},
                 timeout=20,
             )
@@ -171,13 +186,62 @@ class AWSManagerVisivel:
             pass
     
     def testar_conexao(self) -> Dict[str, Any]:
-        """Valida chave e conectividade via GET /listar-arquivos (não envia arquivos)."""
+        """Valida a chave S3 (AWS_API_KEY) — upload / API_URL."""
         try:
             if not self.api_key:
                 return {
                     "sucesso": False,
                     "status_code": None,
-                    "mensagem": "AWS_API_KEY vazia no .env. Preencha a chave e reinicie o servidor.",
+                    "mensagem": "AWS_API_KEY vazia no .env. Preencha a chave S3 e reinicie o servidor.",
+                    "dados": None,
+                }
+            # upload-arquivos é POST; GET costuma devolver 403 Missing Authentication Token
+            # mesmo com chave válida. Testamos com a mesma chave via listar (ou aceitamos esse 403).
+            resp = requests.get(self.AWS_API_URL, headers=self.headers_get, timeout=12)
+            texto = (resp.text or "").strip()
+            if resp.status_code in (200, 201, 202, 400, 404, 405):
+                return {
+                    "sucesso": True,
+                    "status_code": resp.status_code,
+                    "mensagem": "S3/API_URL acessível (chave AWS_API_KEY presente)",
+                    "dados": None,
+                }
+            if resp.status_code == 403 and "Missing Authentication Token" in texto:
+                return {
+                    "sucesso": True,
+                    "status_code": resp.status_code,
+                    "mensagem": "S3 ok (AWS_API_KEY presente; endpoint de upload é POST)",
+                    "dados": None,
+                }
+            if resp.status_code == 403:
+                return {
+                    "sucesso": False,
+                    "status_code": 403,
+                    "mensagem": "Erro de autenticação S3 (AWS_API_KEY)",
+                    "dados": texto[:500],
+                }
+            return {
+                "sucesso": False,
+                "status_code": resp.status_code,
+                "mensagem": f"S3 respondeu HTTP {resp.status_code}",
+                "dados": texto[:500],
+            }
+        except Exception as e:
+            return {
+                "sucesso": False,
+                "status_code": None,
+                "mensagem": f"Erro de conexão S3: {str(e)}",
+                "dados": None,
+            }
+
+    def testar_conexao_banco(self) -> Dict[str, Any]:
+        """Valida BANCO_API_KEY via GET listar-arquivos."""
+        try:
+            if not self.banco_api_key:
+                return {
+                    "sucesso": False,
+                    "status_code": None,
+                    "mensagem": "BANCO_API_KEY vazia. Preencha no .env ou digite na tela.",
                     "dados": None,
                 }
             hoje = datetime.now().strftime("%d/%m/%Y")
@@ -187,14 +251,14 @@ class AWSManagerVisivel:
                 return {
                     "sucesso": True,
                     "status_code": status,
-                    "mensagem": "API acessível (consulta sem envio de arquivos)",
+                    "mensagem": "API Banco acessível (listar-arquivos)",
                     "dados": None,
                 }
             if status == 403:
                 return {
                     "sucesso": False,
                     "status_code": status,
-                    "mensagem": f"Erro de autenticação: {status}",
+                    "mensagem": f"Erro de autenticação API Banco: {status}",
                     "dados": resultado.get("mensagem"),
                 }
             return {
@@ -207,8 +271,8 @@ class AWSManagerVisivel:
             return {
                 "sucesso": False,
                 "status_code": None,
-                "mensagem": f"Erro de conexão: {str(e)}",
-                "dados": None
+                "mensagem": f"Erro de conexão API Banco: {str(e)}",
+                "dados": None,
             }
     
     def _gerar_id_arquivo(self, dados: Dict[str, Any]) -> str:
@@ -468,7 +532,59 @@ class AWSManagerVisivel:
             }
 
     def baixar_arquivo_por_tipo_nome(self, tipo: str, nome_arquivo: str) -> Dict[str, Any]:
-        return {"sucesso": False, "mensagem": "Download remoto desativado: API atual suporta apenas upload via POST."}
+        """Tenta obter o conteudo remoto; se a API nao tiver GET de download, retorna metadados da listagem."""
+        tipo_u = str(tipo or "").upper().strip()
+        nome = str(nome_arquivo or "").strip()
+        if not tipo_u or not nome:
+            return {"sucesso": False, "mensagem": "Informe tipo e nome do arquivo."}
+
+        # Alguns backends expõem o conteúdo no próprio listar-arquivos.
+        # Extrai a data do nome: TIPO_DD-MM-YYYY.json ou TIPO_DD-MM-YYYY-RETn.json
+        data_match = re.search(r"(\d{2})-(\d{2})-(\d{4})", nome)
+        if data_match:
+            data_param = f"{data_match.group(1)}/{data_match.group(2)}/{data_match.group(3)}"
+            lista = self.listar_arquivos_por_data(data_param)
+            if lista.get("sucesso"):
+                for item in lista.get("tipos") or []:
+                    if str(item.get("file_name") or "") != nome:
+                        continue
+                    conteudo = (
+                        item.get("content")
+                        or item.get("conteudo")
+                        or item.get("dados")
+                        or item.get("body")
+                    )
+                    if conteudo is not None:
+                        return {
+                            "sucesso": True,
+                            "fonte": "listar-arquivos",
+                            "tipo": tipo_u,
+                            "file_name": nome,
+                            "conteudo": conteudo,
+                            "metadados": item,
+                        }
+                    return {
+                        "sucesso": True,
+                        "fonte": "listar-arquivos",
+                        "tipo": tipo_u,
+                        "file_name": nome,
+                        "conteudo": None,
+                        "metadados": item,
+                        "mensagem": (
+                            "Arquivo encontrado na API remota, mas o endpoint listar-arquivos "
+                            "não devolve o conteúdo interno. Use o índice local ou a pasta saida_pacotes."
+                        ),
+                    }
+
+        return {
+            "sucesso": False,
+            "mensagem": (
+                "Download do corpo do arquivo não está disponível nesta API "
+                "(apenas listagem e upload). Consulte o índice local ou saida_pacotes."
+            ),
+            "tipo": tipo_u,
+            "file_name": nome,
+        }
 
     def listar_pasta_remota(self, tipo: str, data: Optional[str] = None) -> Dict[str, Any]:
         if not data:

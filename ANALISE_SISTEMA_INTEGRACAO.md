@@ -67,14 +67,14 @@ Este documento descreve como o sistema funciona no processo de integração entr
 - Lê arquivos `.ret`, `.RET`, `.txt` em cada `caminhos_base`.  
 - Extrai segmentos **A** e **Z** (função `recuperar_segmentos_ret`).  
 - O valor monetário está no final do segmento Z (bloco numérico).  
-- **Agregação:** mantém CEF (código 4066) separada; soma os demais bancos no **Brasil** (código 6112). Função `agregar_resultados_mab`.  
+- **Agregação:** mantém CEF (código 7066) separada; soma os demais bancos no **Brasil** (código 6112). Função `agregar_resultados_mab`.  
 - Filtro por dia/mês: `banco.endswith(f"{dia:02d}{mes:02d}")` (sufixo do nome do arquivo/pasta).
 
 **MCR (Classificação)**  
 - Lê planilhas XLS/XLSX em `caminhos_classificacao`.  
 - Localiza linha "Total Líquido Geral:" e cabeçalho com "Natureza da Receita", "Líquido", "Descrição".  
 - Extrai linhas de dados até linha em branco.  
-- `codigo_resumido`: 6112 se banco termina com "bb", 4066 se "cef".  
+- `codigo_resumido`: 6112 se banco termina com "bb", 7066 se "cef".  
 - Filtro por dia/mês: `banco[:2] == dia_str and banco[2:4] == mes_str` (prefixo DDMM no nome do arquivo/banco).
 
 **Deduções (Renúncia 91 / Desconto 93)**  

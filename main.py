@@ -239,30 +239,32 @@ def testar_gov_razao(
     )
 
 
-def calcular_dia_util_anterior(dia: int, mes: int, ano: int = 2026) -> str:
-
-    from datetime import date, timedelta
-    data = date(ano, mes, dia)
-    anterior = data - timedelta(days=1)
-    while anterior.weekday() >= 5: 
-        anterior -= timedelta(days=1)
-    return anterior.strftime("%d/%m/%Y")
-
-def calcular_dia_util_anterior_parts(dia: int, mes: int, ano: int = 2026) -> tuple:
+def calcular_dia_util_anterior_parts(
+    dia: int,
+    mes: int,
+    ano: int = 2026,
+    feriados=None,
+) -> tuple:
     """Retorna (dia, mes, ano) do dia util imediatamente anterior a data informada."""
     from datetime import date, timedelta
     data = date(ano, mes, dia)
     anterior = data - timedelta(days=1)
-    while anterior.weekday() >= 5:
+    feriados = feriados or set()
+    while anterior.weekday() >= 5 or anterior in feriados:
         anterior -= timedelta(days=1)
     return anterior.day, anterior.month, anterior.year
 
-def calcular_proximo_dia_util(dia: int, mes: int, ano: int = 2026) -> str:
+def calcular_dia_util_anterior(dia: int, mes: int, ano: int = 2026, feriados=None) -> str:
+    d, m, a = calcular_dia_util_anterior_parts(dia, mes, ano, feriados=feriados)
+    return f"{d:02d}/{m:02d}/{a}"
+
+def calcular_proximo_dia_util(dia: int, mes: int, ano: int = 2026, feriados=None) -> str:
 
     from datetime import date, timedelta
     data = date(ano, mes, dia)
     proximo = data + timedelta(days=1)
-    while proximo.weekday() >= 5:  
+    feriados = feriados or set()
+    while proximo.weekday() >= 5 or proximo in feriados:
         proximo += timedelta(days=1)
     return proximo.strftime("%d/%m/%Y")
 
@@ -457,8 +459,10 @@ def _adicionar_lancamento_ajuste_no_mcr(mcr_json: dict, tipo_banco: str, diferen
             item["dados"] = []
         item["dados"].append({
             "Natureza_da_Receita": "1999992100",
+            "codigo_receita": "1999992100",
             # No MCR, o detalhe usa ponto como separador decimal.
             "liquido": _formatar_valor_monetario_json_ponto_half_up(diferenca),
+            "valor_receita": _formatar_valor_monetario_json_ponto_half_up(diferenca),
             "categoria": "Outras Receitas Nao Arrecadadas e Nao Projetadas pela RFB - Primarias - Principal",
         })
         return True
@@ -528,7 +532,7 @@ def agregar_resultados_mab(resultados_filtrados: list) -> list:
             valor_centavos = _valor_centavos_do_segmento_z(r.get("segmento_z", ""))
             valor_formatado = _formatar_valor_centavos(valor_centavos)
             banco_lower = str(r.get("banco", "")).lower()
-            codigo_resumido = 4066 if banco_lower.startswith("cef") else 6112
+            codigo_resumido = 7066 if banco_lower.startswith("cef") else 6112
             novo = {
                 "banco": r.get("banco"),
                 "segmento_a": r.get("segmento_a"),
@@ -566,7 +570,7 @@ def agregar_resultados_mab(resultados_filtrados: list) -> list:
             "segmento_a": registro_cef.get("segmento_a"),
             "segmento_z": registro_cef.get("segmento_z"),
             "valor_arrecadado": valor_cef_formatado,
-            "codigo_resumido": 4066,
+            "codigo_resumido": 7066,
         }
 
  
@@ -744,7 +748,7 @@ def adicionar_codigo_resumido_mcr(resultados: list) -> list:
     anotados = []
     for res in resultados:
         banco_lower = str(res.get("banco", "")).lower()
-        codigo = 6112 if banco_lower.endswith("bb") else 4066 if banco_lower.endswith("cef") else None
+        codigo = 6112 if banco_lower.endswith("bb") else 7066 if banco_lower.endswith("cef") else None
         if codigo is None:
             anotados.append(res)
             continue
@@ -1169,8 +1173,9 @@ def _parse_data_celula(valor) -> str:
 
 def extrair_dados_deducao_xls(caminho_arquivo: str) -> list:
     """
-    Lê a aba Planilha1:
-      A (0) = data, F (5) = conta, I (8) = valor.
+    Lê planilha de renúncia/desconto.
+    Layout legado (aba Planilha1): A=data, F=conta, I=valor.
+    Layout novo (aba Page 1 / relatório sintético): A=data, I=nat.receita, Q=valor.
     O tipo 91/93 vem do nome do arquivo (renuncia/desconto).
     """
     prefixo = _prefixo_deducao_pelo_nome(caminho_arquivo)
@@ -1183,32 +1188,94 @@ def extrair_dados_deducao_xls(caminho_arquivo: str) -> list:
 
     try:
         xl = pd.ExcelFile(caminho, engine=engine)
-        if "Planilha1" not in xl.sheet_names:
-            return []
-        df = pd.read_excel(caminho, sheet_name="Planilha1", header=None, engine=engine)
+        sheet_names = list(xl.sheet_names or [])
     except Exception as e:
         print(f"Erro lendo planilha {caminho_arquivo}: {e}")
         return []
 
-    if df is None or df.empty or df.shape[1] < 9:
+    # Preferência: Planilha1 (legado); senão Page 1 / primeira aba.
+    sheet = None
+    layout = None
+    for nome in sheet_names:
+        if str(nome).strip().lower() == "planilha1":
+            sheet = nome
+            layout = "planilha1"
+            break
+    if sheet is None:
+        for nome in sheet_names:
+            if str(nome).strip().lower() in ("page 1", "page1", "pagina 1", "página 1"):
+                sheet = nome
+                layout = "page1"
+                break
+    if sheet is None and sheet_names:
+        sheet = sheet_names[0]
+        layout = "page1"
+
+    try:
+        df = pd.read_excel(caminho, sheet_name=sheet, header=None, engine=engine)
+    except Exception as e:
+        print(f"Erro lendo aba {sheet} de {caminho_arquivo}: {e}")
         return []
+
+    if df is None or df.empty:
+        return []
+
+    if layout == "planilha1":
+        if df.shape[1] < 9:
+            return []
+        col_data, col_conta, col_valor = 0, 5, 8
+    else:
+        if df.shape[1] < 17:
+            # tenta mapear automaticamente pelo cabeçalho
+            col_data = col_conta = col_valor = None
+            for i, row in df.iterrows():
+                textos = {
+                    j: normalizar_texto(str(row.iloc[j]))
+                    for j in range(len(row))
+                    if pd.notna(row.iloc[j])
+                }
+                if not textos:
+                    continue
+                for j, t in textos.items():
+                    if col_data is None and ("data contabil" in t or t == "data"):
+                        col_data = j
+                    if col_conta is None and ("nat da receita" in t or "natureza da receita" in t):
+                        col_conta = j
+                    if col_valor is None and t == "valor":
+                        col_valor = j
+                if col_data is not None and col_conta is not None and col_valor is not None:
+                    break
+            if col_data is None or col_conta is None or col_valor is None:
+                return []
+        else:
+            col_data, col_conta, col_valor = 0, 8, 16
 
     resultados = []
     for _, row in df.iterrows():
-        data_contabil = _parse_data_celula(row.iloc[0])
+        if max(col_data, col_conta, col_valor) >= len(row):
+            continue
+        data_contabil = _parse_data_celula(row.iloc[col_data])
         if not data_contabil:
             continue
-        conta = row.iloc[5]
-        valor = row.iloc[8]
+        conta = row.iloc[col_conta]
+        valor = row.iloc[col_valor]
         try:
             if pd.isna(conta) or pd.isna(valor):
                 continue
         except Exception:
             pass
-        try:
-            valor_num = float(valor)
-        except (TypeError, ValueError):
+        # Cabeçalho / totais textuais
+        if isinstance(conta, str) and not re.search(r"\d", conta):
             continue
+        valor_num = _parse_valor_monetario(valor)
+        if abs(valor_num) < 0.0000001 and str(valor).strip() in ("", "0", "0,00", "0.00"):
+            # ainda assim pode ser zero legítimo; só ignora se não for número
+            pass
+        try:
+            if isinstance(valor, str) and not re.search(r"\d", valor):
+                continue
+        except Exception:
+            pass
 
         codigo_10 = normalizar_codigo_receita_10(conta)
         if not codigo_10:
@@ -1446,7 +1513,9 @@ def status_fontes():
     from carregar_env import diagnosticar_share_sefaz, diretorio_projeto
 
     gov = get_gov_client().autenticar()
-    aws = AWSManagerVisivel().testar_conexao()
+    mgr = AWSManagerVisivel()
+    aws = mgr.testar_conexao()
+    banco = mgr.testar_conexao_banco()
     share = diagnosticar_share_sefaz()
     pasta_saida = os.path.join(diretorio_projeto(), "saida_pacotes")
     return {
@@ -1459,6 +1528,12 @@ def status_fontes():
             "sucesso": bool(aws.get("sucesso")),
             "mensagem": aws.get("mensagem"),
             "status_code": aws.get("status_code"),
+        },
+        "banco": {
+            "sucesso": bool(banco.get("sucesso")),
+            "mensagem": banco.get("mensagem"),
+            "status_code": banco.get("status_code"),
+            "tem_chave_env": bool((os.getenv("BANCO_API_KEY") or "").strip()),
         },
         "share": {
             "sucesso": bool(share.get("acessivel")),
@@ -1612,7 +1687,13 @@ def filtrar_deducoes_por_dia_mes(
 # Pacote local automatizado (substitui operacao manual)
 #############################################################
 
-def _montar_payload_mab(dia: int, mes: int, ano: int) -> dict:
+def _montar_payload_mab(
+    dia: int,
+    mes: int,
+    ano: int,
+    data_arrecadacao: str = None,
+    feriados=None,
+) -> dict:
     from datetime import datetime
     resultados = []
     for caminho_base in caminhos_base:
@@ -1621,7 +1702,13 @@ def _montar_payload_mab(dia: int, mes: int, ano: int) -> dict:
     mes_str = f"{mes:02d}"
     resultados_filtrados = [res for res in resultados if res["banco"].endswith(f"{dia_str}{mes_str}")]
     resultados_agregados = agregar_resultados_mab(resultados_filtrados)
-    data_arrecadacao_mab = calcular_proximo_dia_util(dia, mes, ano)
+    # No pacote diario, data_arrecadacao = dia alvo (contabil). Fora do pacote,
+    # mantem o proximo dia util apos o filtro (respeitando feriados se informados).
+    data_arrecadacao_mab = (
+        str(data_arrecadacao).strip()
+        if data_arrecadacao
+        else calcular_proximo_dia_util(dia, mes, ano, feriados=feriados)
+    )
     return {
         "tipo": "MAB",
         "data_filtro": f"{dia:02d}/{mes:02d}/{ano}",
@@ -1645,11 +1732,9 @@ def _montar_payload_mcr(dia: int, mes: int, ano: int) -> dict:
         if banco not in totais_por_banco:
             totais_por_banco[banco] = 0.0
         for registro in res["dados"]:
-            try:
-                valor = float(registro["liquido"])
-            except Exception:
-                valor = 0.0
+            valor = _parse_valor_monetario(registro.get("liquido", registro.get("valor_receita", 0)))
             totais_por_banco[banco] += valor
+        totais_por_banco[banco] = float(_round2_half_up(totais_por_banco[banco]))
     data_filtro_str = f"{dia:02d}/{mes:02d}/{ano}"
     return {
         "tipo": "MCR",
@@ -1810,6 +1895,373 @@ def _salvar_json(pasta: str, nome_arquivo: str, dados: dict) -> str:
     return caminho
 
 
+TIPOS_ARQUIVO = ("mab", "mcr", "renuncias", "descontos")
+
+
+def _parse_tipos_arquivo(tipos: str) -> list:
+    texto = str(tipos or "todos").strip().lower()
+    if texto in ("", "todos", "all", "*"):
+        return list(TIPOS_ARQUIVO)
+    pedidos = []
+    for parte in re.split(r"[,\s|;]+", texto):
+        p = parte.strip().lower()
+        if p in ("renuncia", "renuncias", "91"):
+            p = "renuncias"
+        elif p in ("desconto", "descontos", "93"):
+            p = "descontos"
+        if p in TIPOS_ARQUIVO and p not in pedidos:
+            pedidos.append(p)
+    return pedidos or list(TIPOS_ARQUIVO)
+
+
+def _parse_data_consulta(data_iso, dia, mes, ano):
+    from datetime import datetime, date
+    if data_iso:
+        return datetime.strptime(str(data_iso).strip()[:10], "%Y-%m-%d").date()
+    if dia is None or mes is None:
+        raise ValueError("Informe data_inicio (YYYY-MM-DD) ou dia/mes/ano.")
+    return date(int(ano or 2026), int(mes), int(dia))
+
+
+def _iterar_dias_periodo(inicio, fim):
+    from datetime import timedelta
+    if fim < inicio:
+        inicio, fim = fim, inicio
+    dias = []
+    atual = inicio
+    while atual <= fim:
+        dias.append(atual)
+        atual += timedelta(days=1)
+    if len(dias) > 31:
+        raise ValueError("Periodo maximo de 31 dias por consulta.")
+    return dias
+
+
+def _nomes_arquivos_pacote(dia: int, mes: int, ano: int) -> dict:
+    sufixo = f"{dia:02d}_{mes:02d}_{ano}"
+    return {
+        "mab": f"mab_dados_{sufixo}.json",
+        "mcr": f"mcr_dados_{sufixo}.json",
+        "renuncias": f"renuncias_dados_{sufixo}.json",
+        "descontos": f"descontos_dados_{sufixo}.json",
+    }
+
+
+def _pasta_saida_dia(pasta_saida: str, dia: int, mes: int, ano: int) -> str:
+    from carregar_env import diretorio_projeto
+    pasta = os.path.join(diretorio_projeto(), pasta_saida, f"{ano}-{mes:02d}-{dia:02d}")
+    os.makedirs(pasta, exist_ok=True)
+    return pasta
+
+
+def _resumo_arquivo(tipo: str, payload: dict) -> dict:
+    tipo = (tipo or "").lower()
+    if not payload:
+        return {"tipo": tipo, "total": 0.0, "registros": 0, "por_conta": {}, "linhas": []}
+
+    if tipo == "mab":
+        linhas = []
+        por_conta = {}
+        total = 0.0
+        for r in payload.get("resultados") or []:
+            valor = _parse_valor_monetario(r.get("valor_arrecadado"))
+            codigo = r.get("codigo_resumido")
+            chave = str(codigo) if codigo is not None else ""
+            linhas.append({
+                "banco": r.get("banco"),
+                "codigo_resumido": codigo,
+                "valor": float(_round2_half_up(valor)),
+            })
+            total += valor
+            por_conta[chave] = float(_round2_half_up(por_conta.get(chave, 0.0) + valor))
+        return {
+            "tipo": "mab",
+            "total": float(_round2_half_up(total)),
+            "registros": len(linhas),
+            "por_conta": por_conta,
+            "linhas": linhas,
+        }
+
+    if tipo == "mcr":
+        linhas = []
+        por_conta = {}
+        total = 0.0
+        por_banco = {}
+        for item in payload.get("resultados") or []:
+            codigo = item.get("codigo_resumido")
+            chave = str(codigo) if codigo is not None else ""
+            banco = item.get("banco")
+            for d in item.get("dados") or []:
+                natureza = (
+                    d.get("codigo_receita")
+                    or d.get("Natureza_da_Receita")
+                    or d.get("Natureza da Receita")
+                    or ""
+                )
+                valor = _parse_valor_monetario(
+                    d.get("valor_receita", d.get("liquido", d.get("Líquido", "0")))
+                )
+                linhas.append({
+                    "banco": banco,
+                    "arquivo": item.get("arquivo"),
+                    "codigo_resumido": codigo,
+                    "codigo_receita": natureza,
+                    "categoria": d.get("categoria") or "",
+                    "valor": float(_round2_half_up(valor)),
+                })
+                total += valor
+                por_conta[chave] = float(_round2_half_up(por_conta.get(chave, 0.0) + valor))
+                por_banco[str(banco or "")] = float(
+                    _round2_half_up(por_banco.get(str(banco or ""), 0.0) + valor)
+                )
+        totais_por_banco = payload.get("totais_por_banco") or por_banco
+        if totais_por_banco:
+            total_bancos = sum(_parse_valor_monetario(v) for v in totais_por_banco.values())
+            if abs(total_bancos) >= 0.01:
+                total = total_bancos
+                por_banco = {str(k): float(_round2_half_up(_parse_valor_monetario(v))) for k, v in totais_por_banco.items()}
+        return {
+            "tipo": "mcr",
+            "total": float(_round2_half_up(total)),
+            "registros": len(linhas),
+            "por_conta": por_conta,
+            "totais_por_banco": por_banco,
+            "linhas": linhas,
+        }
+
+    linhas = []
+    total = 0.0
+    codigo = payload.get("codigo_resumido")
+    chave = str(codigo) if codigo is not None else "6112"
+    for res in payload.get("resultados") or []:
+        for dado in res.get("dados") or []:
+            valor_reg = _parse_valor_monetario(dado.get("valor_deducao"))
+            total += valor_reg
+            detalhes = dado.get("detalhamento") or []
+            if not detalhes:
+                linhas.append({
+                    "arquivo": res.get("arquivo"),
+                    "codigo_resumido": codigo,
+                    "codigo_receita": "",
+                    "codigo_deducao": dado.get("deducao"),
+                    "valor": float(_round2_half_up(valor_reg)),
+                })
+                continue
+            for det in detalhes:
+                valor = _parse_valor_monetario(det.get("valor_deducao"))
+                linhas.append({
+                    "arquivo": res.get("arquivo"),
+                    "codigo_resumido": codigo,
+                    "codigo_receita": det.get("codigo_receita"),
+                    "codigo_deducao": det.get("codigo_deducao"),
+                    "valor": float(_round2_half_up(valor)),
+                })
+    return {
+        "tipo": tipo,
+        "total": float(_round2_half_up(total)),
+        "registros": len(linhas),
+        "por_conta": {chave: float(_round2_half_up(total))},
+        "linhas": linhas,
+    }
+
+
+def _carregar_payloads_locais(dia: int, mes: int, ano: int, pasta_saida: str, tipos: list) -> dict:
+    import json
+    pasta = _pasta_saida_dia(pasta_saida, dia, mes, ano)
+    nomes = _nomes_arquivos_pacote(dia, mes, ano)
+    payloads = {}
+    faltando = []
+    for tipo in tipos:
+        caminho = os.path.join(pasta, nomes[tipo])
+        if not os.path.exists(caminho):
+            faltando.append(nomes[tipo])
+            continue
+        with open(caminho, "r", encoding="utf-8") as f:
+            payloads[tipo] = json.load(f)
+    return {"pasta": pasta, "payloads": payloads, "faltando": faltando, "nomes": nomes}
+
+
+def _gerar_pacote_do_dia(
+    dia: int,
+    mes: int,
+    ano: int,
+    tipos: list,
+    pasta_saida: str = "saida_pacotes",
+    enviar_s3: bool = False,
+    salvar_local: bool = True,
+    calendario_feriados: str = None,
+    incluir_facultativos: bool = False,
+    mab_dia: int = None,
+    mab_mes: int = None,
+    mab_ano: int = None,
+):
+    from datetime import datetime
+    from carregar_env import diagnosticar_share_sefaz
+
+    tipos = [t for t in tipos if t in TIPOS_ARQUIVO]
+    feriados = set()
+    calendario_usado = None
+    if calendario_feriados:
+        from feriados import conjunto_datas_feriado
+        calendario_usado = str(calendario_feriados).strip().lower()
+        feriados = conjunto_datas_feriado(
+            calendario_usado,
+            ano=ano,
+            incluir_facultativos=bool(incluir_facultativos),
+        )
+
+    if mab_dia is not None and mab_mes is not None:
+        dia_mab, mes_mab, ano_mab = int(mab_dia), int(mab_mes), int(mab_ano or ano)
+    else:
+        dia_mab, mes_mab, ano_mab = calcular_dia_util_anterior_parts(
+            dia, mes, ano, feriados=feriados or None
+        )
+    data_alvo = f"{dia:02d}/{mes:02d}/{ano}"
+    data_mab_filtro = f"{dia_mab:02d}/{mes_mab:02d}/{ano_mab}"
+    nomes_finais = _nomes_arquivos_pacote(dia, mes, ano)
+    pasta_dia = _pasta_saida_dia(pasta_saida, dia, mes, ano)
+
+    erros = []
+    share = diagnosticar_share_sefaz()
+    if not share.get("acessivel"):
+        erros.append(f"Share SEFAZ: {share.get('mensagem')}")
+
+    arquivos = {}
+    mab_json = None
+    mcr_json = None
+    mcr_ajustado = None
+    renuncias_json = None
+    descontos_json = None
+    conferencia = None
+    precisa_mab = "mab" in tipos or "mcr" in tipos
+    precisa_mcr = "mcr" in tipos
+
+    if precisa_mab:
+        try:
+            # data_filtro = dia util anterior (arquivos FEBRABAN);
+            # data_arrecadacao = dia alvo do pacote, para casar com o MCR no ajuste.
+            mab_json = _montar_payload_mab(
+                dia_mab,
+                mes_mab,
+                ano_mab,
+                data_arrecadacao=data_alvo,
+                feriados=feriados or None,
+            )
+        except Exception as e:
+            erros.append(f"MAB: {e}")
+
+    if precisa_mcr:
+        try:
+            mcr_json = _montar_payload_mcr(dia, mes, ano)
+        except Exception as e:
+            erros.append(f"MCR: {e}")
+
+    if "renuncias" in tipos:
+        try:
+            renuncias_json = _montar_payload_renuncias(dia, mes, ano)
+        except Exception as e:
+            erros.append(f"Renuncias: {e}")
+
+    if "descontos" in tipos:
+        try:
+            descontos_json = _montar_payload_descontos(dia, mes, ano)
+        except Exception as e:
+            erros.append(f"Descontos: {e}")
+
+    if precisa_mcr and mab_json is not None and mcr_json is not None:
+        try:
+            erro_mab = _validar_estrutura_mab_para_ajuste(mab_json)
+            erro_mcr = _validar_estrutura_mcr_para_ajuste(mcr_json)
+            if erro_mab:
+                raise ValueError(erro_mab)
+            if erro_mcr:
+                raise ValueError(erro_mcr)
+            mcr_ajustado = _ajustar_mcr_com_mab(mab_json, mcr_json)
+            mcr_ajustado = copy.deepcopy(mcr_ajustado)
+            mcr_ajustado["ajuste_aplicado"] = True
+            mcr_ajustado["data_ajuste"] = datetime.now().isoformat()
+            mcr_ajustado["origem_mab"] = mab_json.get("data_filtro")
+            conferencia = _conferir_totais_mab_mcr(mab_json, mcr_json, mcr_ajustado)
+        except Exception as e:
+            erros.append(f"Ajuste MCR x MAB: {e}")
+
+    mcr_final = mcr_ajustado if mcr_ajustado is not None else None
+    conteudo = {}
+    if "mab" in tipos and mab_json is not None:
+        conteudo["mab"] = mab_json
+    if "mcr" in tipos and mcr_final is not None:
+        conteudo["mcr"] = mcr_final
+    elif "mcr" in tipos and mcr_json is not None:
+        erros.append("MCR ajustado indisponivel; arquivo mcr_dados nao foi gerado.")
+    if "renuncias" in tipos and renuncias_json is not None:
+        conteudo["renuncias"] = renuncias_json
+    if "descontos" in tipos and descontos_json is not None:
+        conteudo["descontos"] = descontos_json
+
+    if salvar_local:
+        for tipo, dados in conteudo.items():
+            try:
+                arquivos[tipo] = _salvar_json(pasta_dia, nomes_finais[tipo], dados)
+            except Exception as e:
+                erros.append(f"Salvar {tipo.upper()}: {e}")
+
+    envio_s3 = None
+    if enviar_s3:
+        mab_qtd = (mab_json or {}).get("total_registros") or 0
+        mcr_qtd = (mcr_final or {}).get("total_registros") or 0
+        if not share.get("acessivel"):
+            erros.append("Envio ao S3 cancelado: compartilhamento SEFAZ inacessível no container.")
+        elif "mab" in tipos and "mcr" in tipos and mab_qtd == 0 and mcr_qtd == 0:
+            erros.append(
+                "Envio ao S3 cancelado: MAB e MCR vieram vazios (provável falha de leitura das pastas)."
+            )
+        else:
+            try:
+                envio_s3 = _enviar_pacote_para_s3(
+                    data_alvo,
+                    {k: conteudo.get(k) for k in tipos},
+                )
+                if envio_s3.get("erros"):
+                    erros.extend([f"S3 {e}" for e in envio_s3["erros"]])
+            except Exception as e:
+                envio_s3 = {"sucesso": False, "mensagem": str(e), "arquivos": [], "erros": [str(e)]}
+                erros.append(f"S3: {e}")
+
+    resumo = {tipo: _resumo_arquivo(tipo, conteudo.get(tipo)) for tipo in tipos}
+    mab_regs = int((mab_json or {}).get("total_registros") or 0) if mab_json is not None else 0
+    mab_total = float(((resumo.get("mab") or {}).get("total") or 0.0)) if "mab" in tipos else 0.0
+    mab_vazio = bool(mab_json is not None and mab_regs == 0 and abs(mab_total) < 0.01)
+    mcr_vazio = bool(
+        "mcr" in tipos
+        and (
+            (conteudo.get("mcr") is None)
+            or abs(float(((resumo.get("mcr") or {}).get("total") or 0.0))) < 0.01
+        )
+    )
+
+    return {
+        "data_alvo": data_alvo,
+        "data_mab_filtro": data_mab_filtro,
+        "nomenclatura": {k: nomes_finais[k] for k in tipos},
+        "tipos": tipos,
+        "contagens": {k: (conteudo.get(k) or {}).get("total_registros") for k in tipos},
+        "resumo": resumo,
+        "conteudo": conteudo,
+        "conferencia_mab_mcr": conferencia,
+        "share": share,
+        "arquivos": arquivos,
+        "pasta_saida": pasta_dia,
+        "envio_s3": envio_s3,
+        "erros": erros,
+        "sucesso": len(erros) == 0 and len(conteudo) == len(tipos),
+        "mab_vazio": mab_vazio,
+        "mcr_vazio": mcr_vazio,
+        "calendario_feriados": calendario_usado,
+        # Alerta de feriado so quando o MAB (conteudo do filtro) veio vazio.
+        "alerta_zerado": mab_vazio,
+    }
+
+
 def _proximo_nome_arquivo_s3(tipo: str, data_alvo: str, item_remoto: dict) -> dict:
     """
     Nome padrao: TIPO_DD-MM-YYYY.json
@@ -1839,8 +2291,221 @@ def _proximo_nome_arquivo_s3(tipo: str, data_alvo: str, item_remoto: dict) -> di
     }
 
 
-def _enviar_pacote_para_s3(data_alvo: str, payloads: dict) -> dict:
-    """Envia os 4 JSONs do pacote para a API AWS, com RET se o dia ja existir."""
+def _retificacao_do_nome(nome: str) -> int:
+    match_ret = re.search(r"-RET(\d+)", str(nome or ""), re.IGNORECASE)
+    return int(match_ret.group(1)) if match_ret else 0
+
+
+def _estado_versao_vazio(tipo: str) -> dict:
+    return {
+        "tipo": tipo,
+        "presente": False,
+        "file_name": None,
+        "retificacao": 0,
+        "versao": "ausente",
+        "status": None,
+        "created_at": None,
+    }
+
+
+def _estado_banco_por_data(data_alvo: str) -> dict:
+    from aws_manager_visivel import AWSManagerVisivel
+
+    mgr = AWSManagerVisivel()
+    lista = mgr.listar_arquivos_por_data(data_alvo)
+    por_tipo = {}
+    if not lista.get("sucesso"):
+        return {
+            "sucesso": False,
+            "mensagem": lista.get("mensagem") or "Falha ao consultar API Banco",
+            "por_tipo": {},
+            "bruto": lista,
+        }
+    for item in lista.get("versoes") or lista.get("tipos") or []:
+        tipo = str(item.get("tipo") or "").upper()
+        if not tipo:
+            continue
+        presente = bool(item.get("presente"))
+        nome = item.get("file_name")
+        n = 0
+        try:
+            n = int(item.get("retificacao") if item.get("retificacao") is not None else 0)
+        except (TypeError, ValueError):
+            n = 0
+        n = max(n, _retificacao_do_nome(nome))
+        if not presente:
+            rotulo = "ausente"
+        elif n <= 0:
+            rotulo = "original"
+        else:
+            rotulo = f"RET{n}"
+        por_tipo[tipo] = {
+            "tipo": tipo,
+            "presente": presente,
+            "file_name": nome,
+            "retificacao": n,
+            "versao": rotulo,
+            "status": item.get("status"),
+            "created_at": item.get("created_at"),
+        }
+    return {
+        "sucesso": True,
+        "mensagem": "API Banco ok",
+        "por_tipo": por_tipo,
+        "bruto": lista,
+    }
+
+
+def _estado_indice_local_por_data(data_alvo: str) -> dict:
+    from aws_manager_visivel import AWSManagerVisivel
+
+    data_ref = str(data_alvo or "").replace("-", "/").strip()
+    mgr = AWSManagerVisivel()
+    estrutura = mgr.obter_estrutura_pastas()
+    if not estrutura.get("sucesso"):
+        return {
+            "sucesso": False,
+            "mensagem": estrutura.get("mensagem") or "Falha ao ler índice local",
+            "por_tipo": {},
+            "bruto": estrutura,
+        }
+
+    melhores = {}
+    candidatos = []
+    for nome_pasta, pasta in (estrutura.get("pastas") or {}).items():
+        for arq in pasta.get("arquivos") or []:
+            candidatos.append(arq)
+    for arq in estrutura.get("arquivos_sem_pasta") or []:
+        candidatos.append(arq)
+
+    for arq in candidatos:
+        filtro = str(
+            arq.get("data_filtro")
+            or (arq.get("dados") or {}).get("data_filtro")
+            or arq.get("data_arrecadacao")
+            or (arq.get("dados") or {}).get("data_arrecadacao")
+            or ""
+        ).replace("-", "/")
+        nome = str(arq.get("nome_arquivo") or "")
+        # também casa pelo nome TIPO_DD-MM-YYYY
+        data_no_nome = None
+        m = re.search(r"(\d{2})-(\d{2})-(\d{4})", nome)
+        if m:
+            data_no_nome = f"{m.group(1)}/{m.group(2)}/{m.group(3)}"
+        if filtro != data_ref and data_no_nome != data_ref:
+            continue
+        tipo = str(arq.get("tipo") or "").upper()
+        if not tipo:
+            continue
+        n = _retificacao_do_nome(nome)
+        atual = melhores.get(tipo)
+        if atual is None or n >= atual["retificacao"]:
+            melhores[tipo] = {
+                "tipo": tipo,
+                "presente": True,
+                "file_name": nome or None,
+                "retificacao": n,
+                "versao": "original" if n <= 0 else f"RET{n}",
+                "status": arq.get("status"),
+                "created_at": arq.get("data_upload"),
+                "arquivo_id": arq.get("arquivo_id"),
+            }
+
+    return {
+        "sucesso": True,
+        "mensagem": "Índice local ok",
+        "por_tipo": melhores,
+        "bruto": {"total": len(melhores)},
+    }
+
+
+def _conferir_nomenclatura_fontes(data_alvo: str, tipos: list) -> dict:
+    mapa = {
+        "mab": "MAB",
+        "mcr": "MCR",
+        "descontos": "DESCONTOS",
+        "renuncias": "RENUNCIAS",
+    }
+    tipos_upper = []
+    for t in tipos:
+        chave = str(t or "").lower()
+        if chave in mapa:
+            tipos_upper.append(mapa[chave])
+        else:
+            tipos_upper.append(str(t or "").upper())
+    tipos_upper = list(dict.fromkeys(tipos_upper))
+
+    banco = _estado_banco_por_data(data_alvo)
+    local = _estado_indice_local_por_data(data_alvo)
+
+    comparacao = []
+    divergente = False
+    for tipo in tipos_upper:
+        item_banco = banco.get("por_tipo", {}).get(tipo) or _estado_versao_vazio(tipo)
+        item_local = local.get("por_tipo", {}).get(tipo) or _estado_versao_vazio(tipo)
+        prox_banco = _proximo_nome_arquivo_s3(tipo, data_alvo, item_banco)
+        prox_local = _proximo_nome_arquivo_s3(tipo, data_alvo, item_local)
+        dif = prox_banco["file_name"] != prox_local["file_name"]
+        if dif:
+            divergente = True
+        comparacao.append({
+            "tipo": tipo,
+            "banco": {
+                **item_banco,
+                "proximo_nome": prox_banco["file_name"],
+                "proximo_retificacao": prox_banco["retificacao"],
+            },
+            "local": {
+                **item_local,
+                "proximo_nome": prox_local["file_name"],
+                "proximo_retificacao": prox_local["retificacao"],
+            },
+            "divergente": dif,
+        })
+
+    return {
+        "sucesso": bool(banco.get("sucesso")) or bool(local.get("sucesso")),
+        "data_alvo": data_alvo,
+        "tipos": tipos_upper,
+        "banco_ok": bool(banco.get("sucesso")),
+        "local_ok": bool(local.get("sucesso")),
+        "banco_mensagem": banco.get("mensagem"),
+        "local_mensagem": local.get("mensagem"),
+        "divergente": divergente,
+        "comparacao": comparacao,
+        "mensagem": (
+            "Fontes divergem — escolha qual nomenclatura seguir."
+            if divergente
+            else "Fontes alinhadas — próximo nome igual nos dois."
+        ),
+    }
+
+
+def _mapa_estado_por_fonte(data_alvo: str, fonte: str) -> dict:
+    fonte = str(fonte or "banco").lower().strip()
+    if fonte in ("local", "indice", "s3", "indice_local"):
+        estado = _estado_indice_local_por_data(data_alvo)
+        chave = "local"
+    else:
+        estado = _estado_banco_por_data(data_alvo)
+        chave = "banco"
+    if not estado.get("sucesso"):
+        return {
+            "sucesso": False,
+            "fonte": chave,
+            "mensagem": estado.get("mensagem") or f"Falha ao consultar fonte {chave}",
+            "por_tipo": {},
+        }
+    return {
+        "sucesso": True,
+        "fonte": chave,
+        "mensagem": estado.get("mensagem"),
+        "por_tipo": estado.get("por_tipo") or {},
+    }
+
+
+def _enviar_pacote_para_s3(data_alvo: str, payloads: dict, fonte_nomenclatura: str = None) -> dict:
+    """Envia os JSONs ao S3. Se as fontes divergirem e nenhuma for escolhida, pede escolha."""
     from aws_manager_visivel import AWSManagerVisivel
 
     mapa_tipo = {
@@ -1849,20 +2514,37 @@ def _enviar_pacote_para_s3(data_alvo: str, payloads: dict) -> dict:
         "descontos": "DESCONTOS",
         "renuncias": "RENUNCIAS",
     }
-    mgr = AWSManagerVisivel()
-    lista = mgr.listar_arquivos_por_data(data_alvo)
-    if not lista.get("sucesso"):
+    tipos_envio = [mapa_tipo[k] for k, v in payloads.items() if v is not None and k in mapa_tipo]
+    conferencia = _conferir_nomenclatura_fontes(data_alvo, tipos_envio)
+
+    fonte = str(fonte_nomenclatura or "").strip().lower()
+    if not fonte:
+        if conferencia.get("divergente"):
+            return {
+                "sucesso": False,
+                "precisa_escolha": True,
+                "mensagem": conferencia.get("mensagem"),
+                "conferencia": conferencia,
+                "arquivos": [],
+                "erros": [],
+            }
+        # alinhados: preferir banco se ok, senão local
+        fonte = "banco" if conferencia.get("banco_ok") else "local"
+
+    estado = _mapa_estado_por_fonte(data_alvo, fonte)
+    if not estado.get("sucesso"):
+        # se a fonte escolhida falhou mas a outra existe, avisar
         return {
             "sucesso": False,
-            "mensagem": lista.get("mensagem") or "Falha ao consultar arquivos na AWS",
+            "precisa_escolha": False,
+            "mensagem": estado.get("mensagem"),
+            "conferencia": conferencia,
             "arquivos": [],
-            "erros": [lista.get("mensagem") or "Falha ao consultar arquivos na AWS"],
+            "erros": [estado.get("mensagem")],
         }
 
-    por_tipo = {}
-    for item in lista.get("tipos") or []:
-        por_tipo[str(item.get("tipo") or "").upper()] = item
-
+    por_tipo = estado.get("por_tipo") or {}
+    mgr = AWSManagerVisivel()
     envios = []
     erros = []
     for chave, dados in payloads.items():
@@ -1880,6 +2562,7 @@ def _enviar_pacote_para_s3(data_alvo: str, payloads: dict) -> dict:
             "file_name": info_nome["file_name"],
             "retificacao": info_nome["retificacao"],
             "ja_existia": info_nome["ja_existia"],
+            "fonte_nomenclatura": estado.get("fonte"),
             "sucesso": bool(put.get("sucesso")),
             "status_code": put.get("status_code"),
             "mensagem": put.get("mensagem"),
@@ -1895,194 +2578,273 @@ def _enviar_pacote_para_s3(data_alvo: str, payloads: dict) -> dict:
 
     return {
         "sucesso": len(erros) == 0 and len(envios) > 0,
+        "precisa_escolha": False,
         "mensagem": "Envio ao S3 concluido" if not erros else "Falha em um ou mais envios ao S3",
+        "fonte_nomenclatura": estado.get("fonte"),
+        "conferencia": conferencia,
         "arquivos": envios,
         "erros": erros,
     }
 
 
+@app.get("/feriados/")
+def listar_feriados(
+    calendario: str = Query("nacional", description="nacional | municipal"),
+    ano: int = Query(2026),
+):
+    from feriados import carregar_calendario
+    return JSONResponse(content=carregar_calendario(calendario, ano=ano))
+
+
+@app.get("/feriados/atualizar/")
+def atualizar_feriados(
+    calendario: str = Query("nacional", description="nacional | municipal | ambos"),
+    ano: int = Query(2026),
+):
+    from feriados import atualizar_feriados_nacionais, garantir_feriados_municipais
+    cal = str(calendario or "").lower()
+    out = {"sucesso": True, "ano": ano, "resultados": {}}
+    if cal in ("nacional", "ambos", "all", "*"):
+        out["resultados"]["nacional"] = atualizar_feriados_nacionais(ano)
+    if cal in ("municipal", "contagem", "ambos", "all", "*"):
+        out["resultados"]["municipal"] = garantir_feriados_municipais(ano)
+    if not out["resultados"]:
+        return JSONResponse(status_code=400, content={"sucesso": False, "mensagem": "Calendário inválido."})
+    out["sucesso"] = all(r.get("sucesso") for r in out["resultados"].values())
+    return JSONResponse(content=out)
+
+
+@app.get("/verificar_feriado_mab/")
+def verificar_feriado_mab(
+    dia: int = Query(...),
+    mes: int = Query(...),
+    ano: int = Query(2026),
+    calendario: str = Query("nacional", description="nacional | municipal"),
+    incluir_facultativos: bool = Query(False),
+):
+    from feriados import verificar_mab_por_calendario
+    return JSONResponse(content=verificar_mab_por_calendario(
+        dia, mes, ano, calendario=calendario, incluir_facultativos=incluir_facultativos
+    ))
+
+
 @app.get("/gerar_pacote_local/")
 def gerar_pacote_local(
-    dia: int = Query(..., description="Dia ALVO da operacao (ex.: 10). MCR/Renuncias/Descontos usam este dia."),
-    mes: int = Query(..., description="Mes ALVO da operacao (ex.: 7)."),
-    ano: int = Query(2026, description="Ano ALVO da operacao."),
+    dia: int = Query(None, description="Dia ALVO (alternativa a data_inicio)."),
+    mes: int = Query(None, description="Mes ALVO."),
+    ano: int = Query(2026, description="Ano ALVO."),
+    data_inicio: str = Query(None, description="Inicio do periodo YYYY-MM-DD."),
+    data_final: str = Query(None, description="Fim do periodo YYYY-MM-DD (igual ao inicio se omitido)."),
+    tipos: str = Query("todos", description="mab,mcr,renuncias,descontos ou todos."),
     pasta_saida: str = Query(
         "saida_pacotes",
         description="Pasta base (relativa ao projeto) onde os JSONs serao gravados.",
     ),
-    enviar_s3: bool = Query(True, description="Apos gravar o pacote local, envia os 4 JSON para o S3."),
+    enviar_s3: bool = Query(False, description="Se true, envia ao S3 depois de gravar. Padrao: so gera e mostra."),
+    salvar_local: bool = Query(True, description="Grava JSON em saida_pacotes para conferencia e envio posterior."),
+    calendario_feriados: str = Query(
+        None,
+        description="Opcional: nacional | municipal. So quando o usuario pedir ajuste por feriado.",
+    ),
+    incluir_facultativos: bool = Query(False, description="Se true, pontos facultativos tambem sao pulados no MAB."),
+    mab_dia: int = Query(None, description="Override manual do dia do filtro MAB."),
+    mab_mes: int = Query(None, description="Override manual do mes do filtro MAB."),
+    mab_ano: int = Query(None, description="Override manual do ano do filtro MAB."),
 ):
     """
-    Automatiza o fluxo local e o envio ao S3:
+    Gera arquivos localmente (um dia ou periodo), devolve valores na resposta e so envia ao S3 se pedir.
 
-    1) Data alvo = dia/mes/ano informado (ex.: 10/07)
-    2) MAB = dia util anterior (ex.: 09/07)  -> data_arrecadacao cai no dia alvo
-    3) MCR, Renuncias e Descontos = dia alvo
-    4) Ajusta MCR com MAB (corretor)
-    5) Grava exatamente 4 arquivos na pasta, todos com a data contabil (dia alvo)
-    6) Envia ao S3 com nome TIPO_DD-MM-YYYY.json; se o dia ja existir, usa -RET1, -RET2...
+    1) Data alvo = cada dia do periodo
+    2) MAB = dia util anterior; MCR/Renuncias/Descontos = dia alvo
+    3) MCR e ajustado com MAB quando o MCR e solicitado
+    4) Grava somente os tipos pedidos (nao apaga os outros do dia)
+    5) Envio S3 e opcional e separado
     """
     from datetime import datetime
-    from carregar_env import diagnosticar_share_sefaz, diretorio_projeto
 
-    dia_mab, mes_mab, ano_mab = calcular_dia_util_anterior_parts(dia, mes, ano)
-    data_alvo = f"{dia:02d}/{mes:02d}/{ano}"
-    data_mab_filtro = f"{dia_mab:02d}/{mes_mab:02d}/{ano_mab}"
-    sufixo_data = f"{dia:02d}_{mes:02d}_{ano}"
+    try:
+        inicio = _parse_data_consulta(data_inicio, dia, mes, ano)
+        fim = _parse_data_consulta(data_final, dia, mes, ano) if data_final else inicio
+        lista_dias = _iterar_dias_periodo(inicio, fim)
+        lista_tipos = _parse_tipos_arquivo(tipos)
+    except ValueError as e:
+        return JSONResponse(status_code=400, content={"sucesso": False, "erros": [str(e)]})
 
-    pasta_dia = os.path.join(
-        diretorio_projeto(),
-        pasta_saida,
-        f"{ano}-{mes:02d}-{dia:02d}",
-    )
-    os.makedirs(pasta_dia, exist_ok=True)
-
+    dias = []
     erros = []
-    share = diagnosticar_share_sefaz()
-    if not share.get("acessivel"):
-        erros.append(f"Share SEFAZ: {share.get('mensagem')}")
-    arquivos = {}
+    for d in lista_dias:
+        item = _gerar_pacote_do_dia(
+            d.day,
+            d.month,
+            d.year,
+            lista_tipos,
+            pasta_saida=pasta_saida,
+            enviar_s3=enviar_s3,
+            salvar_local=salvar_local,
+            calendario_feriados=calendario_feriados,
+            incluir_facultativos=incluir_facultativos,
+            mab_dia=mab_dia,
+            mab_mes=mab_mes,
+            mab_ano=mab_ano,
+        )
+        dias.append(item)
+        erros.extend([f"{item['data_alvo']}: {e}" for e in (item.get("erros") or [])])
 
-    mab_json = None
-    mcr_json = None
-    renuncias_json = None
-    descontos_json = None
-    mcr_ajustado = None
-    conferencia = None
-
-    try:
-        mab_json = _montar_payload_mab(dia_mab, mes_mab, ano_mab)
-    except Exception as e:
-        erros.append(f"MAB: {e}")
-
-    try:
-        mcr_json = _montar_payload_mcr(dia, mes, ano)
-    except Exception as e:
-        erros.append(f"MCR: {e}")
-
-    try:
-        renuncias_json = _montar_payload_renuncias(dia, mes, ano)
-    except Exception as e:
-        erros.append(f"Renuncias: {e}")
-
-    try:
-        descontos_json = _montar_payload_descontos(dia, mes, ano)
-    except Exception as e:
-        erros.append(f"Descontos: {e}")
-
-    if mab_json is not None and mcr_json is not None:
-        try:
-            erro_mab = _validar_estrutura_mab_para_ajuste(mab_json)
-            erro_mcr = _validar_estrutura_mcr_para_ajuste(mcr_json)
-            if erro_mab:
-                raise ValueError(erro_mab)
-            if erro_mcr:
-                raise ValueError(erro_mcr)
-            mcr_ajustado = _ajustar_mcr_com_mab(mab_json, mcr_json)
-            mcr_ajustado = copy.deepcopy(mcr_ajustado)
-            mcr_ajustado["ajuste_aplicado"] = True
-            mcr_ajustado["data_ajuste"] = datetime.now().isoformat()
-            mcr_ajustado["origem_mab"] = mab_json.get("data_filtro")
-            conferencia = _conferir_totais_mab_mcr(mab_json, mcr_json, mcr_ajustado)
-        except Exception as e:
-            erros.append(f"Ajuste MCR x MAB: {e}")
-
-    # Grava somente os 4 arquivos finais (nomenclatura unificada na data contabil)
-    nomes_finais = {
-        "mab": f"mab_dados_{sufixo_data}.json",
-        "mcr": f"mcr_dados_{sufixo_data}.json",
-        "renuncias": f"renuncias_dados_{sufixo_data}.json",
-        "descontos": f"descontos_dados_{sufixo_data}.json",
-    }
-
-    # Remove arquivos antigos da pasta (ex.: mcr_ajustado_*, relatorio_*, nomes com data do filtro MAB)
-    for item in os.listdir(pasta_dia):
-        if item.lower().endswith(".json"):
-            try:
-                os.remove(os.path.join(pasta_dia, item))
-            except Exception:
-                pass
-
-    if mab_json is not None:
-        try:
-            arquivos["mab"] = _salvar_json(pasta_dia, nomes_finais["mab"], mab_json)
-        except Exception as e:
-            erros.append(f"Salvar MAB: {e}")
-
-    if mcr_ajustado is not None:
-        try:
-            arquivos["mcr"] = _salvar_json(pasta_dia, nomes_finais["mcr"], mcr_ajustado)
-        except Exception as e:
-            erros.append(f"Salvar MCR: {e}")
-    elif mcr_json is not None:
-        erros.append("MCR ajustado indisponivel; arquivo mcr_dados nao foi gravado.")
-
-    if renuncias_json is not None:
-        try:
-            arquivos["renuncias"] = _salvar_json(pasta_dia, nomes_finais["renuncias"], renuncias_json)
-        except Exception as e:
-            erros.append(f"Salvar Renuncias: {e}")
-
-    if descontos_json is not None:
-        try:
-            arquivos["descontos"] = _salvar_json(pasta_dia, nomes_finais["descontos"], descontos_json)
-        except Exception as e:
-            erros.append(f"Salvar Descontos: {e}")
-
-    envio_s3 = None
-    if enviar_s3:
-        mab_qtd = (mab_json or {}).get("total_registros") or 0
-        mcr_qtd = (mcr_ajustado or mcr_json or {}).get("total_registros") or 0
-        if not share.get("acessivel"):
-            erros.append("Envio ao S3 cancelado: compartilhamento SEFAZ inacessível no container.")
-        elif mab_qtd == 0 and mcr_qtd == 0:
-            erros.append(
-                "Envio ao S3 cancelado: MAB e MCR vieram vazios (provável falha de leitura das pastas)."
-            )
-        else:
-            try:
-                envio_s3 = _enviar_pacote_para_s3(
-                    data_alvo,
-                    {
-                        "mab": mab_json if "mab" in arquivos else None,
-                        "mcr": mcr_ajustado if "mcr" in arquivos else None,
-                        "renuncias": renuncias_json if "renuncias" in arquivos else None,
-                        "descontos": descontos_json if "descontos" in arquivos else None,
-                    },
-                )
-                if envio_s3.get("erros"):
-                    erros.extend([f"S3 {e}" for e in envio_s3["erros"]])
-            except Exception as e:
-                envio_s3 = {"sucesso": False, "mensagem": str(e), "arquivos": [], "erros": [str(e)]}
-                erros.append(f"S3: {e}")
-
+    primeiro = dias[0] if dias else {}
     relatorio = {
         "gerado_em": datetime.now().isoformat(),
-        "data_alvo": data_alvo,
-        "data_mab_filtro": data_mab_filtro,
-        "nomenclatura": nomes_finais,
+        "periodo": {
+            "inicio": inicio.strftime("%d/%m/%Y"),
+            "fim": fim.strftime("%d/%m/%Y"),
+            "dias": len(dias),
+        },
+        "tipos": lista_tipos,
+        "enviar_s3": enviar_s3,
+        "calendario_feriados": calendario_feriados,
+        "nomenclatura": primeiro.get("nomenclatura"),
         "regra": {
             "mab": "conteudo do dia util anterior; nome do arquivo usa data contabil (dia alvo)",
-            "mcr": "conteudo ajustado com MAB; nome mcr_dados_{data_alvo}",
+            "mcr": "conteudo ajustado com MAB quando o MCR e gerado",
             "renuncias_descontos": "dia alvo",
-            "s3": "TIPO_DD-MM-YYYY.json; se o dia ja existir, TIPO_DD-MM-YYYY-RETN.json",
+            "s3": "envio separado; TIPO_DD-MM-YYYY.json ou -RETN se o dia ja existir",
+            "feriados": "nao automatico; usuario confere calendario quando MAB vier zerado",
         },
-        "contagens": {
-            "mab": (mab_json or {}).get("total_registros"),
-            "mcr": (mcr_ajustado or {}).get("total_registros"),
-            "renuncias": (renuncias_json or {}).get("total_registros"),
-            "descontos": (descontos_json or {}).get("total_registros"),
-        },
-        "conferencia_mab_mcr": conferencia,
-        "share": share,
-        "arquivos": arquivos,
-        "pasta_saida": pasta_dia,
-        "envio_s3": envio_s3,
+        "dias": dias,
+        "data_alvo": primeiro.get("data_alvo"),
+        "data_mab_filtro": primeiro.get("data_mab_filtro"),
+        "contagens": primeiro.get("contagens"),
+        "resumo": primeiro.get("resumo"),
+        "conteudo": primeiro.get("conteudo") if len(dias) == 1 else None,
+        "conferencia_mab_mcr": primeiro.get("conferencia_mab_mcr"),
+        "share": primeiro.get("share"),
+        "arquivos": primeiro.get("arquivos"),
+        "pasta_saida": primeiro.get("pasta_saida"),
+        "envio_s3": primeiro.get("envio_s3") if len(dias) == 1 else [i.get("envio_s3") for i in dias],
+        "alerta_zerado": any(i.get("alerta_zerado") or i.get("mab_vazio") for i in dias),
         "erros": erros,
-        "sucesso": len(erros) == 0 and len(arquivos) == 4,
+        "sucesso": len(erros) == 0 and len(dias) > 0,
     }
-
     return JSONResponse(content=relatorio)
+
+
+@app.get("/conferir_nomenclatura_s3/")
+def conferir_nomenclatura_s3(
+    dia: int = Query(None),
+    mes: int = Query(None),
+    ano: int = Query(2026),
+    data_inicio: str = Query(None),
+    data_final: str = Query(None),
+    tipos: str = Query("todos"),
+):
+    """Compara nomenclatura RET entre API Banco e índice local (S3)."""
+    try:
+        inicio = _parse_data_consulta(data_inicio, dia, mes, ano)
+        fim = _parse_data_consulta(data_final, dia, mes, ano) if data_final else inicio
+        lista_dias = _iterar_dias_periodo(inicio, fim)
+        lista_tipos = _parse_tipos_arquivo(tipos)
+    except ValueError as e:
+        return JSONResponse(status_code=400, content={"sucesso": False, "erros": [str(e)]})
+
+    dias = []
+    divergente = False
+    for d in lista_dias:
+        data_alvo = f"{d.day:02d}/{d.month:02d}/{d.year}"
+        conf = _conferir_nomenclatura_fontes(data_alvo, lista_tipos)
+        dias.append(conf)
+        if conf.get("divergente"):
+            divergente = True
+
+    return JSONResponse(content={
+        "sucesso": True,
+        "divergente": divergente,
+        "periodo": {
+            "inicio": inicio.strftime("%d/%m/%Y"),
+            "fim": fim.strftime("%d/%m/%Y"),
+        },
+        "tipos": lista_tipos,
+        "dias": dias,
+        "mensagem": (
+            "Há diferença entre API Banco e índice local. Escolha qual seguir."
+            if divergente
+            else "Fontes alinhadas para o período."
+        ),
+    })
+
+
+@app.get("/enviar_pacote_s3/")
+def enviar_pacote_s3(
+    dia: int = Query(None),
+    mes: int = Query(None),
+    ano: int = Query(2026),
+    data_inicio: str = Query(None, description="Inicio YYYY-MM-DD."),
+    data_final: str = Query(None, description="Fim YYYY-MM-DD."),
+    tipos: str = Query("todos"),
+    pasta_saida: str = Query("saida_pacotes"),
+    fonte_nomenclatura: str = Query(
+        None,
+        description="banco | local. Se omitido e houver divergencia, retorna precisa_escolha.",
+    ),
+):
+    """Envia ao S3 os JSON ja gravados em saida_pacotes (gerar antes, conferir na tela, depois enviar)."""
+    try:
+        inicio = _parse_data_consulta(data_inicio, dia, mes, ano)
+        fim = _parse_data_consulta(data_final, dia, mes, ano) if data_final else inicio
+        lista_dias = _iterar_dias_periodo(inicio, fim)
+        lista_tipos = _parse_tipos_arquivo(tipos)
+    except ValueError as e:
+        return JSONResponse(status_code=400, content={"sucesso": False, "erros": [str(e)]})
+
+    envios = []
+    erros = []
+    precisa_escolha = False
+    conferencias = []
+    for d in lista_dias:
+        data_alvo = f"{d.day:02d}/{d.month:02d}/{d.year}"
+        carregado = _carregar_payloads_locais(d.day, d.month, d.year, pasta_saida, lista_tipos)
+        if carregado["faltando"]:
+            msg = f"{data_alvo}: gere e confira antes de enviar. Faltando: " + ", ".join(carregado["faltando"])
+            erros.append(msg)
+            envios.append({"data_alvo": data_alvo, "sucesso": False, "mensagem": msg, "arquivos": [], "erros": [msg]})
+            continue
+        try:
+            resultado = _enviar_pacote_para_s3(
+                data_alvo,
+                {k: carregado["payloads"].get(k) for k in lista_tipos},
+                fonte_nomenclatura=fonte_nomenclatura,
+            )
+            if resultado.get("conferencia"):
+                conferencias.append(resultado["conferencia"])
+            if resultado.get("precisa_escolha"):
+                precisa_escolha = True
+                envios.append({"data_alvo": data_alvo, **resultado})
+                continue
+            envios.append({"data_alvo": data_alvo, **resultado})
+            if resultado.get("erros"):
+                erros.extend([f"{data_alvo}: {e}" for e in resultado["erros"]])
+            elif not resultado.get("sucesso"):
+                erros.append(f"{data_alvo}: {resultado.get('mensagem') or 'falha no envio'}")
+        except Exception as e:
+            erros.append(f"{data_alvo}: {e}")
+            envios.append({"data_alvo": data_alvo, "sucesso": False, "mensagem": str(e), "arquivos": [], "erros": [str(e)]})
+
+    return JSONResponse(content={
+        "sucesso": (not precisa_escolha) and len(erros) == 0 and len(envios) > 0,
+        "precisa_escolha": precisa_escolha,
+        "mensagem": (
+            "Diferença entre API Banco e índice local — escolha qual nomenclatura seguir."
+            if precisa_escolha
+            else ("Envio ao S3 concluido" if not erros else "Falha em um ou mais envios ao S3")
+        ),
+        "periodo": {
+            "inicio": inicio.strftime("%d/%m/%Y"),
+            "fim": fim.strftime("%d/%m/%Y"),
+        },
+        "tipos": lista_tipos,
+        "fonte_nomenclatura": fonte_nomenclatura,
+        "conferencias": conferencias,
+        "envios": envios,
+        "erros": erros,
+    })
 
 
 @app.get("/download_mab_json/")
