@@ -27,6 +27,21 @@ def _exp_do_jwt(jwt: str) -> Optional[float]:
         return None
 
 
+def _jwt_parece_valido(jwt: Any) -> bool:
+    """API Gov às vezes devolve HTTP 200 com texto de erro no campo jwt."""
+    texto = str(jwt or "").strip()
+    if not texto or " " in texto:
+        return False
+    partes = texto.split(".")
+    if len(partes) != 3:
+        return False
+    # rejeita mensagens do tipo "Token não gerado: ..."
+    lower = texto.lower()
+    if "token" in lower and ("não" in lower or "nao" in lower or "inválid" in lower or "invalid" in lower):
+        return False
+    return True
+
+
 def normalizar_data_iso(valor: str) -> Optional[str]:
     """Aceita yyyy-mm-dd ou dd/mm/aaaa e devolve yyyy-mm-dd."""
     texto = str(valor or "").strip()
@@ -156,6 +171,18 @@ class GovApiClient:
         jwt = dados.get("jwt") if isinstance(dados, dict) else None
         if not jwt:
             return {"sucesso": False, "mensagem": "Resposta sem campo jwt", "url_auth": url}
+        if not _jwt_parece_valido(jwt):
+            return {
+                "sucesso": False,
+                "status_code": resp.status_code,
+                "mensagem": (
+                    "GovBR rejeitou as credenciais (GOV_IDENTIFICADOR / GOV_SENHA / GOV_EMAIL). "
+                    + str(jwt).strip()
+                )[:800],
+                "url_auth": url,
+                "identificador": self.identificador,
+                "email": self.email,
+            }
 
         self._jwt = jwt
         self._jwt_exp = _exp_do_jwt(jwt) or (agora + 3600)

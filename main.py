@@ -1695,7 +1695,7 @@ def status_fontes():
     from aws_manager_visivel import AWSManagerVisivel
     from carregar_env import diagnosticar_share_sefaz, diretorio_projeto
 
-    gov = get_gov_client().autenticar()
+    gov = get_gov_client().autenticar(forcar=True)
     mgr = AWSManagerVisivel()
     aws = mgr.testar_conexao()
     banco = mgr.testar_conexao_banco()

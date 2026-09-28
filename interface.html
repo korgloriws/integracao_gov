@@ -319,6 +319,62 @@
       content: ""; width: 8px; height: 8px; border-radius: 50%;
       background: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft);
     }
+    .home-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 14px;
+      margin-top: 14px;
+    }
+    .home-step {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 18px 18px 16px;
+      box-shadow: var(--shadow);
+      animation: cardRise .5s var(--ease) both;
+    }
+    .home-step:nth-child(2) { animation-delay: .06s; }
+    .home-step:nth-child(3) { animation-delay: .12s; }
+    .home-step:nth-child(4) { animation-delay: .18s; }
+    .home-step .num {
+      display: inline-grid; place-items: center;
+      width: 28px; height: 28px; border-radius: 8px;
+      background: var(--accent); color: #fff;
+      font-size: 13px; font-weight: 800; margin-bottom: 10px;
+    }
+    .home-step h3 { margin: 0 0 8px; font-size: 16px; }
+    .home-step p, .home-step li {
+      margin: 0; color: var(--muted); font-size: 13.5px; line-height: 1.55;
+    }
+    .home-step ul { margin: 8px 0 0; padding-left: 18px; }
+    .home-step li + li { margin-top: 4px; }
+    .home-cta {
+      display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px;
+    }
+    .home-check {
+      margin-top: 14px;
+      border: 1px dashed var(--line);
+      border-radius: var(--radius);
+      padding: 16px 18px;
+      background: var(--surface-2);
+    }
+    .home-check h3 { margin: 0 0 8px; font-size: 15px; }
+    .home-check ol {
+      margin: 0; padding-left: 18px; color: var(--muted);
+      font-size: 13.5px; line-height: 1.55;
+    }
+    .home-check li + li { margin-top: 6px; }
+    .home-check strong { color: var(--ink); }
+    .home-auto {
+      margin-top: 14px;
+      background: var(--rule-bg);
+      border: 1px solid var(--rule-line);
+      border-radius: var(--radius);
+      padding: 16px 18px;
+    }
+    .home-auto h3 { margin: 0 0 8px; font-size: 15px; }
+    .home-auto p { margin: 0; color: var(--muted); font-size: 13.5px; line-height: 1.55; }
+    .home-auto p + p { margin-top: 8px; }
     @keyframes cardRise {
       from { opacity: 0; transform: translateY(8px); }
       to { opacity: 1; transform: translateY(0); }
@@ -573,7 +629,7 @@
       </div>
       <div>
         <h1>SEFAZ Integração</h1>
-        <div class="sub">Razão GovBR · Pacote · S3</div>
+        <div class="sub">Home · Razão GovBR · Pacote · S3</div>
       </div>
     </div>
     <div class="chips">
@@ -589,15 +645,105 @@
   <div class="layout">
     <nav class="steps">
       <div class="nav-label">Navegação</div>
-      <button class="active" data-panel="razao"><span class="ico">☰</span>Razão GovBR</button>
+      <button class="active" data-panel="home"><span class="ico">⌂</span>Home</button>
+      <button data-panel="razao"><span class="ico">☰</span>Razão GovBR</button>
       <button data-panel="pacote"><span class="ico">▣</span>Pacote e conferência</button>
       <button data-panel="s3"><span class="ico">☁</span>Arquivos no S3</button>
       <button data-panel="extras"><span class="ico">⚙</span>Ferramentas</button>
-      <p class="hint">Conta e natureza: digite o início do código (quantos dígitos quiser).</p>
+      <p class="hint">Comece pela Home: o processo do dia e o que fazer se algo não bater.</p>
     </nav>
 
     <main>
-      <section class="panel active" id="panel-razao">
+      <section class="panel active" id="panel-home">
+        <div class="panel-head">
+          <div>
+            <div class="eyebrow">Bem-vindo</div>
+            <h2>Como funciona a integração</h2>
+            <p class="lead">
+              Todo dia o sistema monta o pacote de arrecadação (MAB, MCR, renúncias e descontos)
+              e, se os valores baterem, envia ao S3. Abaixo: o fluxo automático e o que fazer na mão.
+            </p>
+          </div>
+        </div>
+
+        <div class="home-auto">
+          <h3>Rotina automática (padrão 15:00)</h3>
+          <p>
+            No horário configurado em <strong>Ferramentas → Agendamento</strong>, o sistema gera o pacote do dia.
+            O MAB usa o calendário de feriados <strong>nacional</strong> por padrão; se o MAB sair zerado,
+            tenta o calendário <strong>municipal (Contagem)</strong>.
+          </p>
+          <p>
+            Só envia ao S3 se <strong>MAB × MCR bater</strong>. Se não bater, grava o pacote localmente
+            e deixa mensagem para você conferir — nada é enviado automaticamente nesse caso.
+          </p>
+        </div>
+
+        <div class="home-grid">
+          <article class="home-step">
+            <div class="num">1</div>
+            <h3>Fontes do dia</h3>
+            <p>Todos os arquivos vêm das pastas compartilhadas da SEFAZ (SUFIN). Nenhum ainda é lido do GovBR.</p>
+            <ul>
+              <li><strong>MAB</strong> — planilha do share (dia útil anterior ao alvo)</li>
+              <li><strong>MCR / 91 / 93</strong> — planilhas do share do dia alvo</li>
+            </ul>
+          </article>
+          <article class="home-step">
+            <div class="num">2</div>
+            <h3>Gerar e conferir</h3>
+            <p>Em <strong>Pacote e conferência</strong>, escolha a data e clique em <em>Gerar e ver na tela</em>.</p>
+            <ul>
+              <li>Veja os totais e o selo <em>MCR × MAB bateu</em></li>
+              <li>Use <em>Conferir nomes</em> antes de enviar</li>
+              <li>Só então clique em <em>Enviar ao S3</em></li>
+            </ul>
+          </article>
+          <article class="home-step">
+            <div class="num">3</div>
+            <h3>Consultar o que foi enviado</h3>
+            <p>Em <strong>Arquivos no S3</strong>, filtre pela data e abra o conteúdo.</p>
+            <ul>
+              <li>API Banco lista o que o banco enxerga</li>
+              <li>Índice local mostra o histórico desta aplicação</li>
+            </ul>
+          </article>
+          <article class="home-step">
+            <div class="num">4</div>
+            <h3>Se precisar operar na mão</h3>
+            <p>Em <strong>Ferramentas</strong> você gera, vê e baixa cada JSON sem enviar.</p>
+            <ul>
+              <li>Ajuste MCR × MAB por upload</li>
+              <li>Altere hora e tipos do agendamento</li>
+              <li>Teste “Executar agora” com data escolhida</li>
+            </ul>
+          </article>
+        </div>
+
+        <div class="home-check">
+          <h3>Checklist rápido de conferência</h3>
+          <ol>
+            <li>Os chips no topo (GovBR, S3, Banco, Share) estão verdes? Se algum falhou, teste as APIs antes.</li>
+            <li>Em Pacote, a data alvo é o dia da arrecadação? Lembre: o <strong>MAB</strong> lê o dia útil anterior.</li>
+            <li>O selo <strong>MCR × MAB</strong> está ok? Se não, confira feriado ou planilha .xls do dia na pasta SUFIN.</li>
+            <li>MAB zerado com feriado? Use a sugestão de regenerar com a data MAB indicada na tela.</li>
+            <li>Antes do envio, confira se o próximo nome RET (Banco × Local) está coerente.</li>
+          </ol>
+        </div>
+
+        <div class="card" style="margin-top:14px;">
+          <h3>Onde ir agora</h3>
+          <p class="muted" style="margin:0 0 4px;">Atalhos para o dia a dia — sem precisar decorar o menu.</p>
+          <div class="home-cta">
+            <button type="button" class="btn" data-go="pacote">Pacote e conferência</button>
+            <button type="button" class="btn secondary" data-go="razao">Razão GovBR</button>
+            <button type="button" class="btn ghost" data-go="s3">Arquivos no S3</button>
+            <button type="button" class="btn ghost" data-go="extras">Ferramentas / agendamento</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel" id="panel-razao">
         <div class="panel-head">
           <div>
             <div class="eyebrow">Consulta</div>
@@ -983,6 +1129,9 @@
     document.querySelectorAll("nav.steps button").forEach((btn) => {
       btn.addEventListener("click", () => abrirPainel(btn.getAttribute("data-panel")));
     });
+    document.querySelectorAll("[data-go]").forEach((btn) => {
+      btn.addEventListener("click", () => abrirPainel(btn.getAttribute("data-go")));
+    });
 
     function filtrosAtivos() {
       return {
@@ -1155,15 +1304,28 @@
       mostrarLoading("Testando APIs");
       try {
         const d = await getJson("/status_fontes/");
-        setChip("chipGov", !!(d.gov && d.gov.sucesso), d.gov && d.gov.sucesso ? "ok" : "falhou");
-        setChip("chipAws", !!(d.aws && d.aws.sucesso), d.aws && d.aws.sucesso ? "ok" : "falhou");
-        setChip("chipBanco", !!(d.banco && d.banco.sucesso), d.banco && d.banco.sucesso ? "ok" : "falhou");
-        setChip("chipShare", !!(d.share && d.share.sucesso), d.share && d.share.sucesso ? "ok" : "sem acesso");
+        const govOk = !!(d.gov && d.gov.sucesso);
+        const awsOk = !!(d.aws && d.aws.sucesso);
+        const bancoOk = !!(d.banco && d.banco.sucesso);
+        const shareOk = !!(d.share && d.share.sucesso);
+        setChip("chipGov", govOk, govOk ? "ok" : "falhou");
+        setChip("chipAws", awsOk, awsOk ? "ok" : "falhou");
+        setChip("chipBanco", bancoOk, bancoOk ? "ok" : "falhou");
+        setChip("chipShare", shareOk, shareOk ? "ok" : "sem acesso");
+        const msgs = [];
+        if (!govOk) msgs.push("GovBR: " + ((d.gov && d.gov.mensagem) || "falhou"));
+        if (!awsOk) msgs.push("S3: " + ((d.aws && d.aws.mensagem) || "falhou"));
+        if (!bancoOk) msgs.push("Banco: " + ((d.banco && d.banco.mensagem) || "falhou"));
+        if (!shareOk) msgs.push("Share: " + ((d.share && d.share.mensagem) || "sem acesso"));
+        if (msgs.length) {
+          alert("Falha em uma ou mais APIs:\n\n" + msgs.join("\n"));
+        }
       } catch (e) {
         setChip("chipGov", false, "erro");
         setChip("chipAws", false, "erro");
         setChip("chipBanco", false, "erro");
         setChip("chipShare", false, "erro");
+        alert("Erro ao testar APIs: " + e.message);
       } finally {
         ocultarLoading();
       }
@@ -1317,7 +1479,7 @@
           "<li>Clique em <em>Regenerar</em> para remontar o pacote pulando o feriado.</li>" +
           "</ol>" +
           "<p class='muted' style='margin-top:8px'>Renúncias e descontos usam o <strong>dia alvo</strong> (" +
-          esc(item.data_alvo) + "), não o filtro do MAB. Se estiverem zerados, confira se o .xls do dia existe na pasta SAFCI.</p>" +
+          esc(item.data_alvo) + "), não o filtro do MAB. Se estiverem zerados, confira se o .xls do dia existe na pasta SUFIN.</p>" +
           "</div><div class='actions'>" +
           "<button class='btn ghost btn-feriado' data-cal='nacional' data-alvo='" + esc(item.data_alvo) +
           "'>1) Conferir calendário nacional</button>" +
@@ -1955,7 +2117,7 @@
       carregarAgendamento();
       const hash = (location.hash || "").replace("#", "");
       if (hash && $("panel-" + hash)) abrirPainel(hash);
-      else abrirPainel("razao");
+      else abrirPainel("home");
       getJson("/status_fontes/").then((d) => {
         setChip("chipGov", !!(d.gov && d.gov.sucesso), d.gov && d.gov.sucesso ? "ok" : "falhou");
         setChip("chipAws", !!(d.aws && d.aws.sucesso), d.aws && d.aws.sucesso ? "ok" : "falhou");
