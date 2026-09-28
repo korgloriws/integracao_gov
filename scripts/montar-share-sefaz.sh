@@ -12,7 +12,7 @@ set -euo pipefail
 
 MOUNT_POINT="${SEFAZ_MOUNT_POINT:-/mnt/sefaz}"
 # Ajuste o nome do share se necessário (espaço vira %20 em alguns servidores)
-UNC="${SEFAZ_CIFS_UNC:-//10.129.1.254/sefas - sufin}"
+UNC="${SEFAZ_CIFS_UNC:-//10.129.1.254/SEFAS - SUFIN}"
 CREDS="${SEFAZ_CIFS_CREDENTIALS:-/etc/sefaz-cifs.credentials}"
 
 if ! command -v mount.cifs >/dev/null 2>&1; then

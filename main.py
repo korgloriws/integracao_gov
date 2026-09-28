@@ -450,23 +450,43 @@ def _extrair_totais_mcr_por_tipo_banco(mcr_json: dict) -> dict:
         totais[tipo] += _parse_valor_monetario(valor)
     return totais
 
+def _garantir_bloco_mcr(mcr_json: dict, tipo_banco: str) -> dict:
+    """Garante um bloco em resultados para cef/bb (cria vazio se o dia não tiver XLS desse banco)."""
+    for item in mcr_json.get("resultados", []) or []:
+        if _inferir_tipo_banco(item.get("banco", "")) == tipo_banco:
+            return item
+
+    data_filtro = str(mcr_json.get("data_filtro", "")).strip()
+    partes = data_filtro.split("/") if "/" in data_filtro else []
+    if len(partes) == 3:
+        dia, mes = partes[0].zfill(2), partes[1].zfill(2)
+        banco = f"{dia}{mes}{'cef' if tipo_banco == 'cef' else 'bb'}"
+    else:
+        banco = "cef" if tipo_banco == "cef" else "bb"
+    codigo = 7066 if tipo_banco == "cef" else 6112
+    novo = {
+        "arquivo": f"ajuste_{banco}",
+        "banco": banco,
+        "codigo_resumido": codigo,
+        "dados": [],
+    }
+    mcr_json.setdefault("resultados", []).append(novo)
+    mcr_json["total_registros"] = len(mcr_json.get("resultados") or [])
+    return novo
+
 def _adicionar_lancamento_ajuste_no_mcr(mcr_json: dict, tipo_banco: str, diferenca: float):
-    for item in mcr_json.get("resultados", []):
-        tipo_item = _inferir_tipo_banco(item.get("banco", ""))
-        if tipo_item != tipo_banco:
-            continue
-        if "dados" not in item or not isinstance(item["dados"], list):
-            item["dados"] = []
-        item["dados"].append({
-            "Natureza_da_Receita": "1999992100",
-            "codigo_receita": "1999992100",
-            # No MCR, o detalhe usa ponto como separador decimal.
-            "liquido": _formatar_valor_monetario_json_ponto_half_up(diferenca),
-            "valor_receita": _formatar_valor_monetario_json_ponto_half_up(diferenca),
-            "categoria": "Outras Receitas Nao Arrecadadas e Nao Projetadas pela RFB - Primarias - Principal",
-        })
-        return True
-    return False
+    item = _garantir_bloco_mcr(mcr_json, tipo_banco)
+    if "dados" not in item or not isinstance(item["dados"], list):
+        item["dados"] = []
+    item["dados"].append({
+        "Natureza_da_Receita": "1999992100",
+        "codigo_receita": "1999992100",
+        # No MCR, o detalhe usa ponto como separador decimal.
+        "liquido": _formatar_valor_monetario_json_ponto_half_up(diferenca),
+        "valor_receita": _formatar_valor_monetario_json_ponto_half_up(diferenca),
+        "categoria": "Outras Receitas Nao Arrecadadas e Nao Projetadas pela RFB - Primarias - Principal",
+    })
+    return True
 
 def _ajustar_mcr_com_mab(mab_json: dict, mcr_json: dict) -> dict:
     mab_data = str(mab_json.get("data_arrecadacao", "")).strip()
@@ -593,12 +613,40 @@ def ler_planilha_classificacao(caminho_arquivo: str) -> pd.DataFrame:
         df = pd.read_excel(caminho_corrigido)
     return df
 
+def _texto_celula_flex(valor) -> str:
+    """Normaliza texto de célula e tenta corrigir mojibake comum de XLS via CIFS."""
+    texto = str(valor or "")
+    # Mojibake típico UTF-8 lido como Latin-1
+    if "Ã" in texto or "Â" in texto:
+        try:
+            texto = texto.encode("latin-1").decode("utf-8")
+        except Exception:
+            pass
+    return normalizar_texto(texto)
+
+def _idx_coluna_norm(cabecalho: list, *candidatos: str) -> int:
+    """Localiza coluna no cabeçalho ignorando acento/caixa."""
+    alvos = [normalizar_texto(c) for c in candidatos]
+    for i, celula in enumerate(cabecalho):
+        n = _texto_celula_flex(celula)
+        if n in alvos:
+            return i
+        for alvo in alvos:
+            if alvo and alvo in n:
+                return i
+    raise KeyError(candidatos[0] if candidatos else "coluna")
+
 def encontrar_total_liquido_classificacao(df: pd.DataFrame):
     linhas = df.astype(str).values.tolist()
     indice_total = None
     for idx, linha in enumerate(linhas):
-        if any("Total Líquido Geral:" in str(celula) for celula in linha):
-            indice_total = idx
+        # No Linux/CIFS o acento de "Líquido" às vezes chega diferente — compara flexível.
+        for celula in linha:
+            n = _texto_celula_flex(celula)
+            if "total" in n and "geral" in n and ("liquido" in n or "liq" in n):
+                indice_total = idx
+                break
+        if indice_total is not None:
             break
     if indice_total is None:
         raise Exception("Linha com 'Total Líquido Geral:' não encontrada.")
@@ -611,16 +659,20 @@ def extrair_dados_classificacao(caminho_arquivo: str) -> dict:
     cabecalho = None
     for i in range(indice_total + 1, len(linhas)):
         linha_atual = linhas[i]
-        if "Natureza da Receita" in linha_atual and "Líquido" in linha_atual and "Descrição" in linha_atual:
+        norms = [_texto_celula_flex(c) for c in linha_atual]
+        tem_natureza = any("natureza" in n and "receita" in n for n in norms)
+        tem_liquido = any(n == "liquido" or "liquido" in n for n in norms)
+        tem_descricao = any("descricao" in n for n in norms)
+        if tem_natureza and tem_liquido and tem_descricao:
             cabecalho = linha_atual
             indice_cabecalho = i
             break
     if cabecalho is None:
         raise Exception("Não foram encontradas as colunas 'Natureza da Receita', 'Líquido' ou 'Descrição'.")
     try:
-        idx_natureza = cabecalho.index("Natureza da Receita")
-        idx_liquido = cabecalho.index("Líquido")
-        idx_descricao = cabecalho.index("Descrição")
+        idx_natureza = _idx_coluna_norm(cabecalho, "Natureza da Receita")
+        idx_liquido = _idx_coluna_norm(cabecalho, "Líquido")
+        idx_descricao = _idx_coluna_norm(cabecalho, "Descrição")
     except Exception:
         raise Exception("Não foram encontradas as colunas 'Natureza da Receita', 'Líquido' ou 'Descrição' no cabeçalho.")
     dados_extraidos = []
