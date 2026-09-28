@@ -1349,7 +1349,7 @@ def extrair_dados_deducao_xls(caminho_arquivo: str) -> list:
         if caminho_arquivo.lower().endswith(".xls"):
             import xlrd
             book = xlrd.open_workbook(caminho)
-            sheet_names = list(book.sheet_names or [])
+            sheet_names = list(book.sheet_names())
         else:
             xl = pd.ExcelFile(caminho, engine="openpyxl")
             sheet_names = list(xl.sheet_names or [])
