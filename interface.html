@@ -773,8 +773,9 @@
           <div class="card">
             <h3>Agendamento automático</h3>
             <p class="muted">
-              No horário configurado gera o pacote do dia, confere MAB × MCR e
-              <strong>só envia ao S3 se bater</strong>. Se não bater, grava o pacote e deixa mensagem para conferência.
+              No horário configurado gera o pacote do dia (MAB com <strong>calendário nacional</strong> por padrão).
+              Se o MAB continuar zerado, tenta o <strong>municipal Contagem</strong>.
+              Só envia ao S3 se MAB × MCR bater; senão grava o pacote e deixa mensagem para conferência.
             </p>
             <div class="row">
               <div class="field mini">
@@ -822,9 +823,16 @@
               <div class="field mini">
                 <label>Feriados no MAB</label>
                 <select id="agFeriados">
-                  <option value="">Não (padrão)</option>
-                  <option value="nacional">Calendário nacional</option>
-                  <option value="municipal">Municipal Contagem</option>
+                  <option value="nacional">Calendário nacional (padrão)</option>
+                  <option value="municipal">Só municipal Contagem</option>
+                  <option value="off">Não usar calendário</option>
+                </select>
+              </div>
+              <div class="field mini">
+                <label>Se MAB zerar, tentar municipal</label>
+                <select id="agMunicipal">
+                  <option value="true">Sim</option>
+                  <option value="false">Não</option>
                 </select>
               </div>
               <div class="field mini">
@@ -1843,7 +1851,9 @@
         else $("agTipos").value = "todos";
       }
       $("agFonte").value = (cfg.fonte_nomenclatura === "local") ? "local" : "banco";
-      $("agFeriados").value = cfg.calendario_feriados || "";
+      const cal = cfg.calendario_feriados;
+      $("agFeriados").value = (cal === "municipal" || cal === "off") ? cal : "nacional";
+      $("agMunicipal").value = cfg.tentar_municipal_se_zerado === false ? "false" : "true";
       $("agDica").textContent = (d && d.proxima_dica) || "";
       const ult = cfg.ultima_execucao;
       if (!ult) {
@@ -1879,7 +1889,8 @@
           dias_uteis_apenas: $("agUteis").value === "true",
           tipos: $("agTipos").value || "todos",
           fonte_nomenclatura: $("agFonte").value || "banco",
-          calendario_feriados: $("agFeriados").value || null,
+          calendario_feriados: $("agFeriados").value || "nacional",
+          tentar_municipal_se_zerado: $("agMunicipal").value === "true",
         };
         const resp = await fetch("/agendamento/", {
           method: "PUT",

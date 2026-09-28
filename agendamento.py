@@ -23,7 +23,8 @@ _DEFAULT: Dict[str, Any] = {
     "enviar_se_bater": True,
     "dias_uteis_apenas": True,
     "fonte_nomenclatura": "banco",
-    "calendario_feriados": None,
+    "calendario_feriados": "nacional",
+    "tentar_municipal_se_zerado": True,
     "incluir_facultativos": False,
     "ultima_execucao": None,
     "ultima_chave": None,
@@ -64,6 +65,10 @@ def carregar_config() -> Dict[str, Any]:
             hora = "0" + hora
         if len(hora) >= 5:
             cfg["hora"] = hora[:5]
+        if cfg.get("calendario_feriados") in (None, ""):
+            cfg["calendario_feriados"] = "nacional"
+        if "tentar_municipal_se_zerado" not in cfg:
+            cfg["tentar_municipal_se_zerado"] = True
         return cfg
 
 
@@ -90,10 +95,12 @@ def salvar_config(novos: Dict[str, Any]) -> Dict[str, Any]:
             cfg["fonte_nomenclatura"] = fonte if fonte in ("banco", "local") else "banco"
         if "calendario_feriados" in novos:
             cal = novos["calendario_feriados"]
-            if cal in (None, "", "nenhum", "none"):
-                cfg["calendario_feriados"] = None
+            if cal in (None, "", "nenhum", "none", "off", "nao", "não"):
+                cfg["calendario_feriados"] = "off"
             else:
                 cfg["calendario_feriados"] = str(cal).strip().lower()
+        if "tentar_municipal_se_zerado" in novos:
+            cfg["tentar_municipal_se_zerado"] = bool(novos["tentar_municipal_se_zerado"])
         if "incluir_facultativos" in novos:
             cfg["incluir_facultativos"] = bool(novos["incluir_facultativos"])
         # preserva ultima_execucao / ultima_chave
@@ -173,6 +180,15 @@ def executar_rotina(forcar: bool = False, data_alvo: Optional[date] = None) -> D
             })
             return resultado
 
+        # Padrão: calendário nacional. Se MAB continuar zerado, tenta municipal.
+        calendario_cfg = cfg.get("calendario_feriados")
+        if calendario_cfg in (None, "", "nenhum", "none"):
+            calendario_cfg = "nacional"
+        calendario_cfg = str(calendario_cfg).strip().lower()
+        calendario = None if calendario_cfg == "off" else calendario_cfg
+        tentar_municipal = bool(cfg.get("tentar_municipal_se_zerado", True))
+        facultativos = bool(cfg.get("incluir_facultativos"))
+
         item = _gerar_pacote_do_dia(
             alvo.day,
             alvo.month,
@@ -181,9 +197,61 @@ def executar_rotina(forcar: bool = False, data_alvo: Optional[date] = None) -> D
             pasta_saida="saida_pacotes",
             enviar_s3=False,
             salvar_local=True,
-            calendario_feriados=cfg.get("calendario_feriados"),
-            incluir_facultativos=bool(cfg.get("incluir_facultativos")),
+            calendario_feriados=calendario,
+            incluir_facultativos=facultativos,
         )
+        resultado["calendario_usado"] = calendario or "nenhum"
+        resultado["tentou_municipal"] = False
+
+        # Fallback: se ainda zerado e o primeiro passo não foi municipal, tenta Contagem.
+        # (Com nacional padrão, cobre feriado só municipal; com off, ainda tenta municipal se pedido.)
+        if item.get("mab_vazio") and tentar_municipal and calendario != "municipal":
+            # Se estava off/sem calendário, tenta nacional antes do municipal
+            if calendario is None:
+                item_nac = _gerar_pacote_do_dia(
+                    alvo.day,
+                    alvo.month,
+                    alvo.year,
+                    tipos,
+                    pasta_saida="saida_pacotes",
+                    enviar_s3=False,
+                    salvar_local=True,
+                    calendario_feriados="nacional",
+                    incluir_facultativos=facultativos,
+                )
+                if not item_nac.get("mab_vazio"):
+                    item = item_nac
+                    calendario = "nacional"
+                    resultado["calendario_usado"] = "nacional"
+                    resultado["mensagem_feriado"] = (
+                        "MAB zerado sem calendário; regenerado com calendário nacional."
+                    )
+            if item.get("mab_vazio"):
+                item_mun = _gerar_pacote_do_dia(
+                    alvo.day,
+                    alvo.month,
+                    alvo.year,
+                    tipos,
+                    pasta_saida="saida_pacotes",
+                    enviar_s3=False,
+                    salvar_local=True,
+                    calendario_feriados="municipal",
+                    incluir_facultativos=facultativos,
+                )
+                resultado["tentou_municipal"] = True
+                resultado["calendario_nacional_mab_vazio"] = True
+                if not item_mun.get("mab_vazio"):
+                    item = item_mun
+                    calendario = "municipal"
+                    resultado["calendario_usado"] = "municipal"
+                    resultado["mensagem_feriado"] = (
+                        "MAB zerado com calendário nacional; regenerado com municipal Contagem."
+                    )
+                else:
+                    resultado["mensagem_feriado"] = (
+                        "MAB zerado no nacional e também no municipal — conferir pasta/arquivos."
+                    )
+
         resultado["gerado"] = True
         resultado["pacote"] = {
             "sucesso": item.get("sucesso"),
@@ -191,6 +259,7 @@ def executar_rotina(forcar: bool = False, data_alvo: Optional[date] = None) -> D
             "data_mab_filtro": item.get("data_mab_filtro"),
             "mab_vazio": item.get("mab_vazio"),
             "alerta_zerado": item.get("alerta_zerado"),
+            "calendario_feriados": item.get("calendario_feriados") or calendario,
             "erros": item.get("erros") or [],
             "resumo": item.get("resumo"),
             "conferencia_mab_mcr": item.get("conferencia_mab_mcr"),
@@ -210,8 +279,9 @@ def executar_rotina(forcar: bool = False, data_alvo: Optional[date] = None) -> D
 
         if item.get("mab_vazio"):
             resultado["mensagem"] = (
-                "MAB veio zerado — possível feriado. Não enviado. "
-                "Confira calendário na interface e regenere se necessário."
+                "MAB veio zerado após calendário nacional"
+                + (" e municipal" if resultado.get("tentou_municipal") else "")
+                + ". Não enviado. Confira feriados/pasta na interface."
             )
         elif not item.get("sucesso") or (item.get("erros") and precisa_mcr and not bateu):
             resultado["mensagem"] = (
@@ -250,10 +320,19 @@ def executar_rotina(forcar: bool = False, data_alvo: Optional[date] = None) -> D
                 resultado["erros"].append("precisa_escolha_nomenclatura")
             elif envio.get("sucesso"):
                 resultado["enviado"] = True
-                resultado["mensagem"] = "Pacote gerado, conferência bateu e envio ao S3 concluído."
+                extra = resultado.get("mensagem_feriado") or ""
+                resultado["mensagem"] = (
+                    "Pacote gerado, conferência bateu e envio ao S3 concluído."
+                    + ((" " + extra) if extra else "")
+                )
             else:
                 resultado["mensagem"] = "Conferência bateu, mas falhou o envio ao S3."
                 resultado["erros"].extend(envio.get("erros") or [envio.get("mensagem") or "falha S3"])
+
+        if resultado.get("mensagem_feriado") and not resultado.get("enviado") and not item.get("mab_vazio"):
+            # reforça contexto do fallback municipal quando ainda há mensagem pendente de envio
+            if resultado.get("mensagem") and resultado["mensagem_feriado"] not in resultado["mensagem"]:
+                resultado["mensagem"] = resultado["mensagem_feriado"] + " " + resultado["mensagem"]
 
     except Exception as e:
         resultado["erros"].append(str(e))
@@ -322,6 +401,8 @@ def status_agendador() -> Dict[str, Any]:
         "proxima_dica": (
             f"Dispara às {cfg.get('hora')} ({cfg.get('timezone')}) "
             f"{'em dias úteis' if cfg.get('dias_uteis_apenas') else 'todos os dias'}; "
-            f"{'envia S3 se bater' if cfg.get('enviar_se_bater') else 'só gera/confere'}."
+            f"{'envia S3 se bater' if cfg.get('enviar_se_bater') else 'só gera/confere'}; "
+            f"feriados={cfg.get('calendario_feriados') or 'nacional'}; "
+            f"{'se MAB zerar tenta municipal' if cfg.get('tentar_municipal_se_zerado', True) else 'sem fallback municipal'}."
         ),
     }
