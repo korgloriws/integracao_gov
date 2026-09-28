@@ -1,8 +1,9 @@
 import os
 import re
 import copy
+from contextlib import asynccontextmanager
 from decimal import Decimal, ROUND_HALF_UP
-from fastapi import FastAPI, Query, UploadFile, File
+from fastapi import FastAPI, Query, UploadFile, File, Body
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 import pandas as pd
 from relatorios import gerar_relatorio_mab, gerar_relatorio_mcr
@@ -13,7 +14,22 @@ from gov_api import get_gov_client
 carregar_env()
 
 
-app = FastAPI(title="SEFAZ Integração")
+@asynccontextmanager
+async def _lifespan(_app: FastAPI):
+    try:
+        from agendamento import iniciar_agendador
+        iniciar_agendador()
+    except Exception as e:
+        print(f"Agendador não iniciado: {e}")
+    yield
+    try:
+        from agendamento import parar_agendador
+        parar_agendador()
+    except Exception:
+        pass
+
+
+app = FastAPI(title="SEFAZ Integração", lifespan=_lifespan)
 app.include_router(aws_router)
 
 
@@ -2936,6 +2952,40 @@ def conferir_nomenclatura_s3(
             else "Fontes alinhadas para o período."
         ),
     })
+
+
+@app.get("/agendamento/")
+def obter_agendamento():
+    from agendamento import status_agendador
+    return JSONResponse(content=status_agendador())
+
+
+@app.put("/agendamento/")
+def atualizar_agendamento(payload: dict = Body(...)):
+    from agendamento import salvar_config, status_agendador
+    if not isinstance(payload, dict):
+        return JSONResponse(status_code=400, content={"sucesso": False, "mensagem": "JSON inválido."})
+    salvar_config(payload)
+    out = status_agendador()
+    out["mensagem"] = "Agendamento atualizado."
+    return JSONResponse(content=out)
+
+
+@app.post("/agendamento/executar_agora/")
+def executar_agendamento_agora(
+    data: str = Query(None, description="YYYY-MM-DD opcional; padrão = hoje (timezone do agendamento)."),
+):
+    from datetime import datetime
+    from agendamento import carregar_config, executar_rotina, _agora
+
+    cfg = carregar_config()
+    alvo = None
+    if data:
+        alvo = datetime.strptime(str(data).strip()[:10], "%Y-%m-%d").date()
+    else:
+        alvo = _agora(cfg.get("timezone")).date()
+    resultado = executar_rotina(forcar=True, data_alvo=alvo)
+    return JSONResponse(content={"sucesso": True, "resultado": resultado, "config": carregar_config()})
 
 
 @app.get("/enviar_pacote_s3/")

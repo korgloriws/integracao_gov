@@ -771,6 +771,76 @@
             <div id="ajusteOut"></div>
           </div>
           <div class="card">
+            <h3>Agendamento automático</h3>
+            <p class="muted">
+              No horário configurado gera o pacote do dia, confere MAB × MCR e
+              <strong>só envia ao S3 se bater</strong>. Se não bater, grava o pacote e deixa mensagem para conferência.
+            </p>
+            <div class="row">
+              <div class="field mini">
+                <label>Ativo</label>
+                <select id="agAtivo">
+                  <option value="false">Não</option>
+                  <option value="true">Sim</option>
+                </select>
+              </div>
+              <div class="field mini">
+                <label>Horário</label>
+                <input type="time" id="agHora" value="15:00">
+              </div>
+              <div class="field mini">
+                <label>Enviar S3 se bater</label>
+                <select id="agEnviar">
+                  <option value="true">Sim</option>
+                  <option value="false">Não (só gera)</option>
+                </select>
+              </div>
+              <div class="field mini">
+                <label>Só dias úteis</label>
+                <select id="agUteis">
+                  <option value="true">Sim</option>
+                  <option value="false">Não</option>
+                </select>
+              </div>
+            </div>
+            <div class="row" style="margin-top:10px">
+              <div class="field mini">
+                <label>Tipos</label>
+                <select id="agTipos">
+                  <option value="todos">Todos</option>
+                  <option value="mab,mcr">MAB + MCR</option>
+                  <option value="mab,mcr,renuncias,descontos">MAB+MCR+91+93</option>
+                </select>
+              </div>
+              <div class="field mini">
+                <label>Nomenclatura S3</label>
+                <select id="agFonte">
+                  <option value="banco">API Banco</option>
+                  <option value="local">Índice local</option>
+                </select>
+              </div>
+              <div class="field mini">
+                <label>Feriados no MAB</label>
+                <select id="agFeriados">
+                  <option value="">Não (padrão)</option>
+                  <option value="nacional">Calendário nacional</option>
+                  <option value="municipal">Municipal Contagem</option>
+                </select>
+              </div>
+              <div class="field mini">
+                <label>Executar data</label>
+                <input type="date" id="agDataTeste">
+              </div>
+            </div>
+            <div class="actions" style="margin-top:12px">
+              <button class="btn" id="btnAgSalvar" type="button">Salvar agendamento</button>
+              <button class="btn ghost" id="btnAgAgora" type="button">Executar agora</button>
+              <button class="btn ghost" id="btnAgStatus" type="button">Atualizar status</button>
+            </div>
+            <p class="muted" id="agDica" style="margin-top:8px"></p>
+            <div id="agOut"></div>
+          </div>
+          <div class="card">
             <h3>Diagnóstico da pasta Renúncia e Desconto</h3>
             <button class="btn ghost" id="btnPastas">Testar busca de pastas</button>
             <div id="pastasOut"></div>
@@ -1761,12 +1831,100 @@
         $("ajusteOut").innerHTML = "<div class='alert err'>" + esc(err.message) + "</div>";
       } finally { ocultarLoading(); }
     });
+    function renderAgendamento(d) {
+      const cfg = (d && d.config) || {};
+      $("agAtivo").value = cfg.ativo ? "true" : "false";
+      if (cfg.hora) $("agHora").value = cfg.hora;
+      $("agEnviar").value = cfg.enviar_se_bater === false ? "false" : "true";
+      $("agUteis").value = cfg.dias_uteis_apenas === false ? "false" : "true";
+      if (cfg.tipos) {
+        const opt = Array.from($("agTipos").options).find((o) => o.value === cfg.tipos);
+        if (opt) $("agTipos").value = cfg.tipos;
+        else $("agTipos").value = "todos";
+      }
+      $("agFonte").value = (cfg.fonte_nomenclatura === "local") ? "local" : "banco";
+      $("agFeriados").value = cfg.calendario_feriados || "";
+      $("agDica").textContent = (d && d.proxima_dica) || "";
+      const ult = cfg.ultima_execucao;
+      if (!ult) {
+        $("agOut").innerHTML = "<p class='muted'>Nenhuma execução registrada ainda.</p>";
+        return;
+      }
+      const ok = !!ult.enviado || (!!ult.bateu && cfg.enviar_se_bater === false);
+      let html = "<div class='alert " + (ult.enviado ? "ok" : (ult.bateu ? "warn" : "err")) + "' style='margin-top:10px'>";
+      html += "<strong>Última execução</strong> · " + esc(ult.data_alvo || "") + "<br>" + esc(ult.mensagem || "");
+      if (ult.bateu === true) html += " <span class='pill ok'>bateu</span>";
+      if (ult.bateu === false) html += " <span class='pill warn'>não bateu</span>";
+      if (ult.enviado) html += " <span class='pill ok'>enviado S3</span>";
+      html += "</div>";
+      if (ult.erros && ult.erros.length) {
+        html += "<div class='alert err'>" + ult.erros.map(esc).join("<br>") + "</div>";
+      }
+      $("agOut").innerHTML = html;
+    }
+    async function carregarAgendamento() {
+      try {
+        renderAgendamento(await getJson("/agendamento/"));
+      } catch (e) {
+        $("agOut").innerHTML = "<div class='alert err'>" + esc(e.message) + "</div>";
+      }
+    }
+    async function salvarAgendamento() {
+      mostrarLoading("Salvando agendamento");
+      try {
+        const body = {
+          ativo: $("agAtivo").value === "true",
+          hora: $("agHora").value || "15:00",
+          enviar_se_bater: $("agEnviar").value === "true",
+          dias_uteis_apenas: $("agUteis").value === "true",
+          tipos: $("agTipos").value || "todos",
+          fonte_nomenclatura: $("agFonte").value || "banco",
+          calendario_feriados: $("agFeriados").value || null,
+        };
+        const resp = await fetch("/agendamento/", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        const d = await resp.json();
+        if (!resp.ok) throw new Error(d.mensagem || "Falha ao salvar");
+        renderAgendamento(d);
+      } catch (e) {
+        $("agOut").innerHTML = "<div class='alert err'>" + esc(e.message) + "</div>";
+      } finally {
+        ocultarLoading();
+      }
+    }
+    async function executarAgendamentoAgora() {
+      const data = $("agDataTeste").value;
+      const qs = data ? ("?data=" + encodeURIComponent(data)) : "";
+      mostrarLoading("Executando rotina automática");
+      try {
+        const resp = await fetch("/agendamento/executar_agora/" + qs, { method: "POST" });
+        const d = await resp.json();
+        if (!resp.ok) throw new Error((d && d.mensagem) || "Falha na execução");
+        const r = d.resultado || {};
+        let html = "<div class='alert " + (r.enviado ? "ok" : (r.bateu ? "warn" : "err")) + "'>";
+        html += esc(r.mensagem || "Concluído");
+        html += "</div>";
+        if (r.erros && r.erros.length) html += "<div class='alert err'>" + r.erros.map(esc).join("<br>") + "</div>";
+        $("agOut").innerHTML = html;
+        await carregarAgendamento();
+      } catch (e) {
+        $("agOut").innerHTML = "<div class='alert err'>" + esc(e.message) + "</div>";
+      } finally {
+        ocultarLoading();
+      }
+    }
     $("btnPastas").addEventListener("click", async () => {
       mostrarLoading("Buscando pastas");
       try { $("pastasOut").innerHTML = jsonBox(await getJson("/testar_busca_pastas/")); }
       catch (e) { $("pastasOut").innerHTML = "<div class='alert err'>" + esc(e.message) + "</div>"; }
       finally { ocultarLoading(); }
     });
+    $("btnAgSalvar").addEventListener("click", salvarAgendamento);
+    $("btnAgAgora").addEventListener("click", executarAgendamentoAgora);
+    $("btnAgStatus").addEventListener("click", carregarAgendamento);
 
     (function init() {
       aplicarTema(localStorage.getItem("sefaz-tema") || "light");
@@ -1779,9 +1937,11 @@
       $("dataFerrIni").value = iso;
       $("dataFerrFim").value = iso;
       $("dataS3").value = iso;
+      $("agDataTeste").value = iso;
       atualizarRegra();
       atualizarRegraFerr();
       renderChips();
+      carregarAgendamento();
       const hash = (location.hash || "").replace("#", "");
       if (hash && $("panel-" + hash)) abrirPainel(hash);
       else abrirPainel("razao");
