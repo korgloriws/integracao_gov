@@ -173,6 +173,60 @@ def testar_gov_api():
     return get_gov_client().autenticar(forcar=True)
 
 
+@app.get("/diagnosticar_mcr_xls/")
+def diagnosticar_mcr_xls(
+    dia: int = Query(None, description="Filtra arquivos DDMMbb/DDMMcef deste dia"),
+    mes: int = Query(None, description="Mês (1-12)"),
+    ano: int = Query(2026),
+    limite: int = Query(40, description="Máximo de arquivos testados"),
+):
+    """Lista XLS de classificação e tenta extrair, devolvendo erro por arquivo (debug Linux/CIFS)."""
+    caminhos = caminhos_safci_exportacao(ano=ano, arquivos_safci=True)
+    testados = []
+    ok = 0
+    falhas = 0
+    for pasta in caminhos:
+        if not pasta or not os.path.isdir(pasta):
+            continue
+        try:
+            nomes = sorted(os.listdir(pasta))
+        except Exception as e:
+            testados.append({"pasta": pasta, "erro_listagem": str(e)})
+            continue
+        for nome in nomes:
+            if not nome.lower().endswith((".xls", ".xlsx")):
+                continue
+            if dia is not None and mes is not None:
+                prefixo = f"{int(dia):02d}{int(mes):02d}"
+                base = os.path.splitext(nome)[0].lower()
+                if not (base.startswith(prefixo) and (base.endswith("bb") or base.endswith("cef"))):
+                    continue
+            caminho = os.path.join(pasta, nome)
+            item = {"arquivo": nome, "pasta": pasta, "caminho": caminho}
+            try:
+                dados = extrair_dados_classificacao(caminho)
+                item["sucesso"] = True
+                item["banco"] = dados.get("banco")
+                item["registros"] = len(dados.get("dados") or [])
+                ok += 1
+            except Exception as e:
+                item["sucesso"] = False
+                item["erro"] = str(e)
+                falhas += 1
+            testados.append(item)
+            if len(testados) >= int(limite):
+                break
+        if len(testados) >= int(limite):
+            break
+    return {
+        "sucesso": falhas == 0 and ok > 0,
+        "ok": ok,
+        "falhas": falhas,
+        "testados": testados,
+        "caminhos_classificacao": caminhos,
+    }
+
+
 @app.get("/testar_gov_razao/")
 def testar_gov_razao(
     data_inicio: str = Query(..., description="Data inicial yyyy-mm-dd ou dd/mm/aaaa"),
@@ -608,14 +662,16 @@ def agregar_resultados_mab(resultados_filtrados: list) -> list:
 def ler_planilha_classificacao(caminho_arquivo: str) -> pd.DataFrame:
     caminho_corrigido = corrigir_caminho(caminho_arquivo)
     if caminho_arquivo.lower().endswith('.xls'):
-        df = pd.read_excel(caminho_corrigido, engine='xlrd')
+        df = pd.read_excel(caminho_corrigido, engine='xlrd', header=None)
     else:
-        df = pd.read_excel(caminho_corrigido)
+        df = pd.read_excel(caminho_corrigido, header=None)
     return df
 
 def _texto_celula_flex(valor) -> str:
     """Normaliza texto de célula e tenta corrigir mojibake comum de XLS via CIFS."""
     texto = str(valor or "")
+    if texto.lower() == "nan":
+        return ""
     # Mojibake típico UTF-8 lido como Latin-1
     if "Ã" in texto or "Â" in texto:
         try:
@@ -629,6 +685,8 @@ def _idx_coluna_norm(cabecalho: list, *candidatos: str) -> int:
     alvos = [normalizar_texto(c) for c in candidatos]
     for i, celula in enumerate(cabecalho):
         n = _texto_celula_flex(celula)
+        if not n:
+            continue
         if n in alvos:
             return i
         for alvo in alvos:
@@ -636,66 +694,96 @@ def _idx_coluna_norm(cabecalho: list, *candidatos: str) -> int:
                 return i
     raise KeyError(candidatos[0] if candidatos else "coluna")
 
-def encontrar_total_liquido_classificacao(df: pd.DataFrame):
-    linhas = df.astype(str).values.tolist()
+def _eh_cabecalho_classificacao(linha) -> bool:
+    norms = [_texto_celula_flex(c) for c in linha]
+    tem_natureza = any("natureza" in n and "receita" in n for n in norms)
+    tem_liquido = any(
+        n == "liquido" or "liquido" in n or "lquido" in n
+        for n in norms
+    )
+    return tem_natureza and tem_liquido
+
+def _encontrar_secao_totais_natureza(linhas: list) -> tuple:
+    """
+    Preferência: bloco 'Totais por Natureza da Receita' (layout Page 1 atual).
+    Fallback: linha 'Total Líquido Geral' e cabeçalho seguinte (layout legado).
+    Retorna (indice_cabecalho, cabecalho).
+    """
+    for i, linha in enumerate(linhas):
+        if any("totais por natureza" in _texto_celula_flex(c) for c in linha):
+            for j in range(i + 1, min(i + 6, len(linhas))):
+                if _eh_cabecalho_classificacao(linhas[j]):
+                    return j, linhas[j]
+
     indice_total = None
     for idx, linha in enumerate(linhas):
-        # No Linux/CIFS o acento de "Líquido" às vezes chega diferente — compara flexível.
         for celula in linha:
             n = _texto_celula_flex(celula)
-            if "total" in n and "geral" in n and ("liquido" in n or "liq" in n):
+            if not n:
+                continue
+            # "Total Líquido Geral" / "Total Lquido Geral" / variações
+            if "total" in n and "geral" in n and ("liquido" in n or "lquido" in n or "liq" in n):
                 indice_total = idx
                 break
         if indice_total is not None:
             break
     if indice_total is None:
-        raise Exception("Linha com 'Total Líquido Geral:' não encontrada.")
-    return indice_total, linhas
+        raise Exception("Seção de totais do MCR não encontrada ( Totais por Natureza / Total Líquido Geral ).")
+
+    for i in range(indice_total + 1, min(indice_total + 8, len(linhas))):
+        if _eh_cabecalho_classificacao(linhas[i]):
+            return i, linhas[i]
+    raise Exception("Cabeçalho Natureza/Líquido não encontrado após os totais do MCR.")
 
 def extrair_dados_classificacao(caminho_arquivo: str) -> dict:
     df = ler_planilha_classificacao(caminho_arquivo)
-    indice_total, linhas = encontrar_total_liquido_classificacao(df)
-    indice_cabecalho = None
-    cabecalho = None
-    for i in range(indice_total + 1, len(linhas)):
-        linha_atual = linhas[i]
-        norms = [_texto_celula_flex(c) for c in linha_atual]
-        tem_natureza = any("natureza" in n and "receita" in n for n in norms)
-        tem_liquido = any(n == "liquido" or "liquido" in n for n in norms)
-        tem_descricao = any("descricao" in n for n in norms)
-        if tem_natureza and tem_liquido and tem_descricao:
-            cabecalho = linha_atual
-            indice_cabecalho = i
-            break
-    if cabecalho is None:
-        raise Exception("Não foram encontradas as colunas 'Natureza da Receita', 'Líquido' ou 'Descrição'.")
+    if df is None or df.empty:
+        raise Exception("Planilha de classificação vazia.")
+    linhas = df.astype(str).values.tolist()
+    indice_cabecalho, cabecalho = _encontrar_secao_totais_natureza(linhas)
     try:
         idx_natureza = _idx_coluna_norm(cabecalho, "Natureza da Receita")
-        idx_liquido = _idx_coluna_norm(cabecalho, "Líquido")
-        idx_descricao = _idx_coluna_norm(cabecalho, "Descrição")
+        idx_liquido = _idx_coluna_norm(cabecalho, "Líquido", "Liquido", "Lquido")
+    except Exception as e:
+        raise Exception(f"Colunas Natureza/Líquido não encontradas no cabeçalho: {e}") from e
+    try:
+        idx_descricao = _idx_coluna_norm(cabecalho, "Descrição", "Descricao", "Descri")
     except Exception:
-        raise Exception("Não foram encontradas as colunas 'Natureza da Receita', 'Líquido' ou 'Descrição' no cabeçalho.")
+        idx_descricao = None
+
     dados_extraidos = []
     for linha in linhas[indice_cabecalho + 1:]:
-        if all(str(celula).strip() == "" for celula in linha):
+        # Linhas totalmente vazias / NaN: pular (não encerrar — o XLS tem buracos entre blocos)
+        if all(str(celula).strip() in ("", "nan", "None") for celula in linha):
+            continue
+        joined = " ".join(_texto_celula_flex(c) for c in linha if _texto_celula_flex(c))
+        # Encera só em totais finais óbvios (não em "Totais por Natureza...")
+        if joined.startswith("total geral") or joined.startswith("total liquido geral") or joined.startswith("total lquido geral"):
             break
         natureza = str(linha[idx_natureza]).strip()
         liquido = str(linha[idx_liquido]).strip()
-        descricao = str(linha[idx_descricao]).strip()
-        categoria = descricao.lower()
-        if natureza.lower() == "nan" and liquido.lower() == "nan":
+        descricao = str(linha[idx_descricao]).strip() if idx_descricao is not None else ""
+        if natureza.lower() in ("nan", "", "none") and liquido.lower() in ("nan", "", "none"):
+            continue
+        if not any(ch.isdigit() for ch in natureza):
+            continue
+        if liquido.lower() in ("nan", "", "none"):
             continue
         dados_extraidos.append({
             "Natureza_da_Receita": natureza,
             "liquido": liquido,
-            "categoria": categoria,
+            "categoria": descricao.lower() if descricao.lower() != "nan" else "",
         })
+    if not dados_extraidos:
+        raise Exception("Nenhum lançamento extraído da seção de totais por natureza.")
     banco = os.path.basename(caminho_arquivo).split('.')[0]
     return {"arquivo": caminho_arquivo, "banco": banco, "dados": dados_extraidos}
 
 def processar_pasta_classificacao(caminho_pasta: str) -> list:
     resultados = []
     extensoes_validas = [".xls", ".xlsx"]
+    if not caminho_pasta or not os.path.isdir(caminho_pasta):
+        return resultados
     for root, _, files in os.walk(caminho_pasta):
         for file in files:
             if any(file.lower().endswith(ext) for ext in extensoes_validas):
