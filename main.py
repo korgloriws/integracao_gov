@@ -659,13 +659,33 @@ def agregar_resultados_mab(resultados_filtrados: list) -> list:
 # Módulo MCR – Classificação (Arquivos XLS)
 ###############################################
 
+def _ler_xls_com_xlrd(caminho_arquivo: str, sheet_preferidas=None) -> pd.DataFrame:
+    """
+    Lê .xls legado via xlrd 1.2 (sem pandas.read_excel).
+    Pandas recente exige xlrd>=2, que não lê mais .xls — por isso o caminho direto.
+    """
+    import xlrd
+
+    book = xlrd.open_workbook(corrigir_caminho(caminho_arquivo))
+    sheet = None
+    preferidas = [
+        normalizar_texto(n)
+        for n in (sheet_preferidas or ("Planilha1", "Page 1", "Page1", "Planilha 1"))
+    ]
+    for nome in book.sheet_names():
+        if normalizar_texto(str(nome)) in preferidas:
+            sheet = book.sheet_by_name(nome)
+            break
+    if sheet is None:
+        sheet = book.sheet_by_index(0)
+    dados = [sheet.row_values(r) for r in range(sheet.nrows)]
+    return pd.DataFrame(dados)
+
 def ler_planilha_classificacao(caminho_arquivo: str) -> pd.DataFrame:
     caminho_corrigido = corrigir_caminho(caminho_arquivo)
-    if caminho_arquivo.lower().endswith('.xls'):
-        df = pd.read_excel(caminho_corrigido, engine='xlrd', header=None)
-    else:
-        df = pd.read_excel(caminho_corrigido, header=None)
-    return df
+    if caminho_arquivo.lower().endswith(".xls"):
+        return _ler_xls_com_xlrd(caminho_corrigido)
+    return pd.read_excel(caminho_corrigido, header=None, engine="openpyxl")
 
 def _texto_celula_flex(valor) -> str:
     """Normaliza texto de célula e tenta corrigir mojibake comum de XLS via CIFS."""
@@ -1324,11 +1344,15 @@ def extrair_dados_deducao_xls(caminho_arquivo: str) -> list:
 
     tipo = "ren" if prefixo == "91" else "desc"
     caminho = corrigir_caminho(caminho_arquivo)
-    engine = "xlrd" if caminho_arquivo.lower().endswith(".xls") else "openpyxl"
 
     try:
-        xl = pd.ExcelFile(caminho, engine=engine)
-        sheet_names = list(xl.sheet_names or [])
+        if caminho_arquivo.lower().endswith(".xls"):
+            import xlrd
+            book = xlrd.open_workbook(caminho)
+            sheet_names = list(book.sheet_names or [])
+        else:
+            xl = pd.ExcelFile(caminho, engine="openpyxl")
+            sheet_names = list(xl.sheet_names or [])
     except Exception as e:
         print(f"Erro lendo planilha {caminho_arquivo}: {e}")
         return []
@@ -1352,7 +1376,10 @@ def extrair_dados_deducao_xls(caminho_arquivo: str) -> list:
         layout = "page1"
 
     try:
-        df = pd.read_excel(caminho, sheet_name=sheet, header=None, engine=engine)
+        if caminho_arquivo.lower().endswith(".xls"):
+            df = _ler_xls_com_xlrd(caminho, sheet_preferidas=(sheet,))
+        else:
+            df = pd.read_excel(caminho, sheet_name=sheet, header=None, engine="openpyxl")
     except Exception as e:
         print(f"Erro lendo aba {sheet} de {caminho_arquivo}: {e}")
         return []
