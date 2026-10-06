@@ -1,13 +1,16 @@
-"""Agendamento diário: gera pacote, confere MAB×MCR e envia ao S3 só se bater."""
+"""Agendamento diário: gera pacote, confere MAB×MCR e envia ao S3 só se bater.
+
+Em falha (arquivo ausente, não bateu, etc.) não envia — mas no próximo disparo
+tenta de novo o dia pendente e, em sucesso, avança até ficar em dia (catch-up).
+"""
 from __future__ import annotations
 
 import json
 import os
 import threading
-import time
 from copy import deepcopy
-from datetime import date, datetime
-from typing import Any, Dict, Optional
+from datetime import date, datetime, timedelta
+from typing import Any, Dict, List, Optional
 from zoneinfo import ZoneInfo
 
 from carregar_env import diretorio_projeto
@@ -26,6 +29,10 @@ _DEFAULT: Dict[str, Any] = {
     "calendario_feriados": "nacional",
     "tentar_municipal_se_zerado": True,
     "incluir_facultativos": False,
+    # Último dia (YYYY-MM-DD) com envio S3 ok. Catch-up começa no dia seguinte.
+    "ultimo_envio_sucesso": None,
+    # Limite de dias por disparo (segurança).
+    "catchup_max_dias": 45,
     "ultima_execucao": None,
     "ultima_chave": None,
 }
@@ -48,6 +55,16 @@ def _agora(tz_name: str = TZ_PADRAO) -> datetime:
         return datetime.now(ZoneInfo(TZ_PADRAO))
 
 
+def _parse_data_iso(valor: Any) -> Optional[date]:
+    texto = str(valor or "").strip()[:10]
+    if not texto:
+        return None
+    try:
+        return datetime.strptime(texto, "%Y-%m-%d").date()
+    except ValueError:
+        return None
+
+
 def carregar_config() -> Dict[str, Any]:
     with _lock:
         caminho = _caminho_cfg()
@@ -57,7 +74,9 @@ def carregar_config() -> Dict[str, Any]:
                 with open(caminho, "r", encoding="utf-8") as f:
                     dados = json.load(f)
                 if isinstance(dados, dict):
-                    cfg.update({k: dados.get(k, cfg[k]) for k in cfg.keys()})
+                    for k in cfg.keys():
+                        if k in dados:
+                            cfg[k] = dados[k]
             except Exception:
                 pass
         hora = str(cfg.get("hora") or "15:00").strip()
@@ -69,6 +88,10 @@ def carregar_config() -> Dict[str, Any]:
             cfg["calendario_feriados"] = "nacional"
         if "tentar_municipal_se_zerado" not in cfg:
             cfg["tentar_municipal_se_zerado"] = True
+        try:
+            cfg["catchup_max_dias"] = max(1, min(120, int(cfg.get("catchup_max_dias") or 45)))
+        except (TypeError, ValueError):
+            cfg["catchup_max_dias"] = 45
         return cfg
 
 
@@ -103,7 +126,18 @@ def salvar_config(novos: Dict[str, Any]) -> Dict[str, Any]:
             cfg["tentar_municipal_se_zerado"] = bool(novos["tentar_municipal_se_zerado"])
         if "incluir_facultativos" in novos:
             cfg["incluir_facultativos"] = bool(novos["incluir_facultativos"])
-        # preserva ultima_execucao / ultima_chave
+        if "ultimo_envio_sucesso" in novos:
+            raw = novos.get("ultimo_envio_sucesso")
+            if raw in (None, "", "null"):
+                cfg["ultimo_envio_sucesso"] = None
+            else:
+                d = _parse_data_iso(raw)
+                cfg["ultimo_envio_sucesso"] = d.isoformat() if d else None
+        if "catchup_max_dias" in novos and novos["catchup_max_dias"] is not None:
+            try:
+                cfg["catchup_max_dias"] = max(1, min(120, int(novos["catchup_max_dias"])))
+            except (TypeError, ValueError):
+                pass
         with open(_caminho_cfg(), "w", encoding="utf-8") as f:
             json.dump(cfg, f, ensure_ascii=False, indent=2)
         return cfg
@@ -135,12 +169,62 @@ def _deve_rodar_agora(cfg: Dict[str, Any], agora: datetime) -> bool:
     return True
 
 
+def _eh_dia_processavel(d: date, so_uteis: bool) -> bool:
+    if so_uteis and d.weekday() >= 5:
+        return False
+    return True
+
+
+def _dias_pendentes(cfg: Dict[str, Any], hoje: date) -> List[date]:
+    """Dias a processar: do dia seguinte ao último sucesso até hoje (respeitando úteis)."""
+    so_uteis = bool(cfg.get("dias_uteis_apenas"))
+    max_dias = int(cfg.get("catchup_max_dias") or 45)
+    ultimo = _parse_data_iso(cfg.get("ultimo_envio_sucesso"))
+    if ultimo is None:
+        # Primeira vez: só o dia de hoje (não inventa histórico).
+        return [hoje] if _eh_dia_processavel(hoje, so_uteis) else []
+
+    inicio = ultimo + timedelta(days=1)
+    if inicio > hoje:
+        return []
+
+    pendentes: List[date] = []
+    d = inicio
+    while d <= hoje and len(pendentes) < max_dias:
+        if _eh_dia_processavel(d, so_uteis):
+            pendentes.append(d)
+        d += timedelta(days=1)
+    return pendentes
+
+
+def _marcar_envio_sucesso(dia_alvo: date) -> None:
+    """Avança o ponteiro só se este dia for o próximo pendente (não pula buracos)."""
+    with _lock:
+        cfg = carregar_config()
+        ultimo = _parse_data_iso(cfg.get("ultimo_envio_sucesso"))
+        so_uteis = bool(cfg.get("dias_uteis_apenas"))
+        if ultimo is None:
+            cfg["ultimo_envio_sucesso"] = dia_alvo.isoformat()
+        else:
+            d = ultimo + timedelta(days=1)
+            lim = dia_alvo + timedelta(days=1)
+            proximo = None
+            while d < lim:
+                if _eh_dia_processavel(d, so_uteis):
+                    proximo = d
+                    break
+                d += timedelta(days=1)
+            if proximo == dia_alvo:
+                cfg["ultimo_envio_sucesso"] = dia_alvo.isoformat()
+        with open(_caminho_cfg(), "w", encoding="utf-8") as f:
+            json.dump(cfg, f, ensure_ascii=False, indent=2)
+
+
 def executar_rotina(forcar: bool = False, data_alvo: Optional[date] = None) -> Dict[str, Any]:
     """
-    Gera o pacote do dia, confere MAB×MCR e envia ao S3 somente se bateu
+    Gera o pacote de UM dia, confere MAB×MCR e envia ao S3 somente se bater
     (quando enviar_se_bater=True).
     """
-    # import local evita ciclo na carga do main
     from main import (
         _enviar_pacote_para_s3,
         _gerar_pacote_do_dia,
@@ -157,6 +241,7 @@ def executar_rotina(forcar: bool = False, data_alvo: Optional[date] = None) -> D
         "inicio": inicio_iso,
         "fim": None,
         "data_alvo": alvo.strftime("%d/%m/%Y"),
+        "data_alvo_iso": alvo.isoformat(),
         "hora_config": cfg.get("hora"),
         "forcar": bool(forcar),
         "tipos": tipos,
@@ -174,13 +259,9 @@ def executar_rotina(forcar: bool = False, data_alvo: Optional[date] = None) -> D
         if cfg.get("dias_uteis_apenas") and alvo.weekday() >= 5 and not forcar:
             resultado["mensagem"] = "Dia não útil — rotina ignorada."
             resultado["fim"] = datetime.now().isoformat()
-            _gravar_ultima({
-                "ultima_execucao": resultado,
-                "ultima_chave": _chave_execucao(cfg, agora) if not forcar else cfg.get("ultima_chave"),
-            })
+            resultado["pulado_nao_util"] = True
             return resultado
 
-        # Padrão: calendário nacional. Se MAB continuar zerado, tenta municipal.
         calendario_cfg = cfg.get("calendario_feriados")
         if calendario_cfg in (None, "", "nenhum", "none"):
             calendario_cfg = "nacional"
@@ -203,10 +284,7 @@ def executar_rotina(forcar: bool = False, data_alvo: Optional[date] = None) -> D
         resultado["calendario_usado"] = calendario or "nenhum"
         resultado["tentou_municipal"] = False
 
-        # Fallback: se ainda zerado e o primeiro passo não foi municipal, tenta Contagem.
-        # (Com nacional padrão, cobre feriado só municipal; com off, ainda tenta municipal se pedido.)
         if item.get("mab_vazio") and tentar_municipal and calendario != "municipal":
-            # Se estava off/sem calendário, tenta nacional antes do municipal
             if calendario is None:
                 item_nac = _gerar_pacote_do_dia(
                     alvo.day,
@@ -258,6 +336,7 @@ def executar_rotina(forcar: bool = False, data_alvo: Optional[date] = None) -> D
             "data_alvo": item.get("data_alvo"),
             "data_mab_filtro": item.get("data_mab_filtro"),
             "mab_vazio": item.get("mab_vazio"),
+            "mcr_fonte_ausente": item.get("mcr_fonte_ausente"),
             "alerta_zerado": item.get("alerta_zerado"),
             "calendario_feriados": item.get("calendario_feriados") or calendario,
             "erros": item.get("erros") or [],
@@ -273,7 +352,6 @@ def executar_rotina(forcar: bool = False, data_alvo: Optional[date] = None) -> D
         if precisa_mcr:
             bateu = bool(conf and conf.get("bateu"))
         else:
-            # sem MCR no pacote: considera ok se gerou sem erros e MAB não zerado (se pedido)
             bateu = bool(item.get("sucesso")) and not item.get("mab_vazio")
         resultado["bateu"] = bateu
 
@@ -283,6 +361,12 @@ def executar_rotina(forcar: bool = False, data_alvo: Optional[date] = None) -> D
                 + (" e municipal" if resultado.get("tentou_municipal") else "")
                 + ". Não enviado. Confira feriados/pasta na interface."
             )
+        elif item.get("mcr_fonte_ausente"):
+            resultado["mensagem"] = (
+                "MCR sem arquivo XLS na pasta SUFIN para o dia — pacote não enviado. "
+                "Confira se existem DDMMbb / DDMMcef na classificação."
+            )
+            resultado["bateu"] = False
         elif not item.get("sucesso") or (item.get("erros") and precisa_mcr and not bateu):
             resultado["mensagem"] = (
                 "Geração com erros ou conferência incompleta — não enviado. Confira o pacote."
@@ -296,10 +380,11 @@ def executar_rotina(forcar: bool = False, data_alvo: Optional[date] = None) -> D
             resultado["mensagem"] = (
                 "Pacote gerado e conferido. Envio automático desligado nas ferramentas."
             )
+            if bateu:
+                resultado["avancou_sem_envio"] = True
         elif not bateu:
             resultado["mensagem"] = "Conferência não aprovada — não enviado."
         else:
-            # envia
             envio = _enviar_pacote_para_s3(
                 item.get("data_alvo"),
                 {k: (item.get("conteudo") or {}).get(k) for k in tipos},
@@ -330,24 +415,107 @@ def executar_rotina(forcar: bool = False, data_alvo: Optional[date] = None) -> D
                 resultado["erros"].extend(envio.get("erros") or [envio.get("mensagem") or "falha S3"])
 
         if resultado.get("mensagem_feriado") and not resultado.get("enviado") and not item.get("mab_vazio"):
-            # reforça contexto do fallback municipal quando ainda há mensagem pendente de envio
             if resultado.get("mensagem") and resultado["mensagem_feriado"] not in resultado["mensagem"]:
                 resultado["mensagem"] = resultado["mensagem_feriado"] + " " + resultado["mensagem"]
+
+        if resultado.get("enviado") or resultado.get("avancou_sem_envio"):
+            _marcar_envio_sucesso(alvo)
 
     except Exception as e:
         resultado["erros"].append(str(e))
         resultado["mensagem"] = f"Falha na rotina automática: {e}"
 
     resultado["fim"] = datetime.now().isoformat()
+    return resultado
+
+
+def executar_catchup(forcar: bool = False) -> Dict[str, Any]:
+    """
+    No horário (ou ao forçar sem data): processa dias pendentes em ordem.
+    Para no primeiro dia que falhar; no próximo disparo tenta de novo esse dia.
+    Em sucesso, segue para o próximo até ficar em dia (ou atingir catchup_max_dias).
+    """
+    cfg = carregar_config()
+    agora = _agora(cfg.get("timezone"))
+    hoje = agora.date()
+    pendentes = _dias_pendentes(cfg, hoje)
+    inicio_iso = datetime.now().isoformat()
+
+    resumo: Dict[str, Any] = {
+        "inicio": inicio_iso,
+        "fim": None,
+        "modo": "catchup",
+        "forcar": bool(forcar),
+        "hoje": hoje.isoformat(),
+        "ultimo_envio_sucesso_antes": cfg.get("ultimo_envio_sucesso"),
+        "pendentes": [d.isoformat() for d in pendentes],
+        "processados": [],
+        "parou_em": None,
+        "em_dia": False,
+        "enviados": 0,
+        "mensagem": "",
+        "erros": [],
+    }
+
+    if not pendentes:
+        resumo["em_dia"] = True
+        resumo["mensagem"] = (
+            "Nada pendente — já em dia"
+            + (
+                f" (último sucesso {cfg.get('ultimo_envio_sucesso')})."
+                if cfg.get("ultimo_envio_sucesso")
+                else "."
+            )
+        )
+        resumo["fim"] = datetime.now().isoformat()
+        _gravar_ultima({
+            "ultima_execucao": resumo,
+            "ultima_chave": _chave_execucao(cfg, agora) if not forcar else cfg.get("ultima_chave"),
+        })
+        return resumo
+
+    for dia in pendentes:
+        item = executar_rotina(forcar=True, data_alvo=dia)
+        resumo["processados"].append({
+            "data": dia.isoformat(),
+            "enviado": bool(item.get("enviado")),
+            "bateu": item.get("bateu"),
+            "mensagem": item.get("mensagem"),
+            "erros": item.get("erros") or [],
+            "mcr_fonte_ausente": (item.get("pacote") or {}).get("mcr_fonte_ausente"),
+        })
+        if item.get("enviado") or item.get("avancou_sem_envio"):
+            if item.get("enviado"):
+                resumo["enviados"] += 1
+            continue
+
+        resumo["parou_em"] = dia.isoformat()
+        resumo["erros"] = list(item.get("erros") or [])
+        resumo["mensagem"] = (
+            f"Pendência em {dia.strftime('%d/%m/%Y')}: {item.get('mensagem') or 'falha'}. "
+            "Não avançou. No próximo disparo tenta este dia de novo."
+        )
+        break
+    else:
+        cfg_depois = carregar_config()
+        resumo["em_dia"] = True
+        resumo["mensagem"] = (
+            f"Catch-up concluído: {len(resumo['processados'])} dia(s) processado(s), "
+            f"{resumo['enviados']} enviado(s). Em dia "
+            f"(último sucesso {cfg_depois.get('ultimo_envio_sucesso')})."
+        )
+
+    resumo["fim"] = datetime.now().isoformat()
+    cfg_final = carregar_config()
+    resumo["ultimo_envio_sucesso_depois"] = cfg_final.get("ultimo_envio_sucesso")
     chave = _chave_execucao(cfg, agora)
     _gravar_ultima({
-        "ultima_execucao": resultado,
+        "ultima_execucao": resumo,
         "ultima_chave": chave if not forcar else (cfg.get("ultima_chave") or chave),
     })
-    # se forcar no mesmo minuto do agendamento, marca chave para não duplicar
     if forcar and agora.strftime("%H:%M") == str(cfg.get("hora") or "")[:5]:
-        _gravar_ultima({"ultima_chave": chave, "ultima_execucao": resultado})
-    return resultado
+        _gravar_ultima({"ultima_chave": chave, "ultima_execucao": resumo})
+    return resumo
 
 
 def _loop():
@@ -356,9 +524,8 @@ def _loop():
             cfg = carregar_config()
             agora = _agora(cfg.get("timezone"))
             if _deve_rodar_agora(cfg, agora):
-                # marca chave antes para evitar corrida em dois ticks
                 _gravar_ultima({"ultima_chave": _chave_execucao(cfg, agora)})
-                executar_rotina(forcar=False)
+                executar_catchup(forcar=False)
         except Exception as e:
             try:
                 _gravar_ultima({
@@ -366,6 +533,7 @@ def _loop():
                         "fim": datetime.now().isoformat(),
                         "mensagem": f"Erro no loop do agendador: {e}",
                         "erros": [str(e)],
+                        "modo": "catchup",
                     }
                 })
             except Exception:
@@ -393,16 +561,23 @@ def parar_agendador() -> None:
 def status_agendador() -> Dict[str, Any]:
     cfg = carregar_config()
     agora = _agora(cfg.get("timezone"))
+    hoje = agora.date()
+    pendentes = _dias_pendentes(cfg, hoje)
     return {
         "sucesso": True,
         "agora": agora.isoformat(),
         "thread_ativa": bool(_thread and _thread.is_alive()),
         "config": cfg,
+        "pendentes": [d.isoformat() for d in pendentes],
+        "em_dia": len(pendentes) == 0,
         "proxima_dica": (
             f"Dispara às {cfg.get('hora')} ({cfg.get('timezone')}) "
             f"{'em dias úteis' if cfg.get('dias_uteis_apenas') else 'todos os dias'}; "
             f"{'envia S3 se bater' if cfg.get('enviar_se_bater') else 'só gera/confere'}; "
             f"feriados={cfg.get('calendario_feriados') or 'nacional'}; "
-            f"{'se MAB zerar tenta municipal' if cfg.get('tentar_municipal_se_zerado', True) else 'sem fallback municipal'}."
+            f"último envio ok={cfg.get('ultimo_envio_sucesso') or 'não definido'}; "
+            f"pendentes={len(pendentes)}"
+            + (f" (desde {pendentes[0].isoformat()})" if pendentes else " (em dia)")
+            + ". Em falha não envia, mas no próximo dia tenta de novo e em sucesso avança até ficar em dia."
         ),
     }

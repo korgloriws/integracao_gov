@@ -715,6 +715,7 @@
             <ul>
               <li>Ajuste MCR × MAB por upload</li>
               <li>Altere hora e tipos do agendamento</li>
+              <li>Catch-up: falhou um dia → no próximo tenta de novo e avança até em dia</li>
               <li>Teste “Executar agora” com data escolhida</li>
             </ul>
           </article>
@@ -919,9 +920,9 @@
           <div class="card">
             <h3>Agendamento automático</h3>
             <p class="muted">
-              No horário configurado gera o pacote do dia (MAB com <strong>calendário nacional</strong> por padrão).
-              Se o MAB continuar zerado, tenta o <strong>municipal Contagem</strong>.
-              Só envia ao S3 se MAB × MCR bater; senão grava o pacote e deixa mensagem para conferência.
+              No horário gera o(s) dia(s) pendente(s): se um dia falhar (sem arquivo, não bateu),
+              <strong>não envia</strong> e no próximo disparo tenta de novo.
+              Em sucesso, avança automaticamente até ficar em dia.
             </p>
             <div class="row">
               <div class="field mini">
@@ -982,8 +983,12 @@
                 </select>
               </div>
               <div class="field mini">
-                <label>Executar data</label>
-                <input type="date" id="agDataTeste">
+                <label>Último envio OK</label>
+                <input type="date" id="agUltimoOk" title="Catch-up começa no dia seguinte a esta data">
+              </div>
+              <div class="field mini">
+                <label>Executar data (1 dia)</label>
+                <input type="date" id="agDataTeste" title="Preencha para forçar um dia; vazio = catch-up">
               </div>
             </div>
             <div class="actions" style="margin-top:12px">
@@ -1486,6 +1491,13 @@
           "<button class='btn ghost btn-feriado' data-cal='municipal' data-alvo='" + esc(item.data_alvo) +
           "'>2) Conferir calendário municipal (Contagem)</button>" +
           "</div><div class='feriado-out' data-alvo='" + esc(item.data_alvo) + "'></div>";
+      }
+      if (item.mcr_fonte_ausente) {
+        html += "<div class='alert err' style='margin-top:10px'>" +
+          "<strong>MCR sem arquivo na SUFIN</strong> — não há XLS <code>DDMMbb</code>/<code>DDMMcef</code> " +
+          "para <strong>" + esc(item.data_alvo) + "</strong>. " +
+          "O sistema <em>não</em> inventa mais MCR a partir do MAB nem envia ao S3 nesse caso. " +
+          "Coloque o arquivo na pasta de classificação e gere de novo.</div>";
       }
       tipos.forEach((tipo) => {
         const payload = (item.conteudo || {})[tipo];
@@ -2016,19 +2028,51 @@
       const cal = cfg.calendario_feriados;
       $("agFeriados").value = (cal === "municipal" || cal === "off") ? cal : "nacional";
       $("agMunicipal").value = cfg.tentar_municipal_se_zerado === false ? "false" : "true";
+      $("agUltimoOk").value = cfg.ultimo_envio_sucesso || "";
       $("agDica").textContent = (d && d.proxima_dica) || "";
+      const pend = (d && d.pendentes) || [];
+      let html = "";
+      if (cfg.ultimo_envio_sucesso || pend.length) {
+        html += "<div class='alert " + (pend.length ? "warn" : "ok") + "' style='margin-top:10px'>";
+        html += "<strong>Catch-up</strong> · último envio OK: <strong>" +
+          esc(cfg.ultimo_envio_sucesso || "(não definido — só tenta hoje)") + "</strong>";
+        if (pend.length) {
+          html += "<br>Pendentes: " + esc(pend.join(", "));
+        } else {
+          html += "<br>Em dia.";
+        }
+        html += "</div>";
+      }
       const ult = cfg.ultima_execucao;
       if (!ult) {
-        $("agOut").innerHTML = "<p class='muted'>Nenhuma execução registrada ainda.</p>";
+        html += "<p class='muted'>Nenhuma execução registrada ainda.</p>";
+        $("agOut").innerHTML = html;
         return;
       }
-      const ok = !!ult.enviado || (!!ult.bateu && cfg.enviar_se_bater === false);
-      let html = "<div class='alert " + (ult.enviado ? "ok" : (ult.bateu ? "warn" : "err")) + "' style='margin-top:10px'>";
-      html += "<strong>Última execução</strong> · " + esc(ult.data_alvo || "") + "<br>" + esc(ult.mensagem || "");
-      if (ult.bateu === true) html += " <span class='pill ok'>bateu</span>";
-      if (ult.bateu === false) html += " <span class='pill warn'>não bateu</span>";
-      if (ult.enviado) html += " <span class='pill ok'>enviado S3</span>";
-      html += "</div>";
+      if (ult.modo === "catchup") {
+        html += "<div class='alert " + (ult.em_dia ? "ok" : "warn") + "' style='margin-top:10px'>";
+        html += "<strong>Última execução (catch-up)</strong><br>" + esc(ult.mensagem || "");
+        if (ult.parou_em) html += " <span class='pill warn'>parou em " + esc(ult.parou_em) + "</span>";
+        if (ult.enviados) html += " <span class='pill ok'>" + ult.enviados + " enviado(s)</span>";
+        html += "</div>";
+        if (ult.processados && ult.processados.length) {
+          html += "<div class='table-wrap' style='margin-top:8px'><table><thead><tr>" +
+            "<th>Data</th><th>Bateu</th><th>Enviado</th><th>Mensagem</th></tr></thead><tbody>";
+          ult.processados.forEach((p) => {
+            html += "<tr><td>" + esc(p.data || "") + "</td><td>" +
+              (p.bateu === true ? "sim" : (p.bateu === false ? "não" : "—")) + "</td><td>" +
+              (p.enviado ? "sim" : "não") + "</td><td>" + esc(p.mensagem || "") + "</td></tr>";
+          });
+          html += "</tbody></table></div>";
+        }
+      } else {
+        html += "<div class='alert " + (ult.enviado ? "ok" : (ult.bateu ? "warn" : "err")) + "' style='margin-top:10px'>";
+        html += "<strong>Última execução</strong> · " + esc(ult.data_alvo || "") + "<br>" + esc(ult.mensagem || "");
+        if (ult.bateu === true) html += " <span class='pill ok'>bateu</span>";
+        if (ult.bateu === false) html += " <span class='pill warn'>não bateu</span>";
+        if (ult.enviado) html += " <span class='pill ok'>enviado S3</span>";
+        html += "</div>";
+      }
       if (ult.erros && ult.erros.length) {
         html += "<div class='alert err'>" + ult.erros.map(esc).join("<br>") + "</div>";
       }
@@ -2053,6 +2097,7 @@
           fonte_nomenclatura: $("agFonte").value || "banco",
           calendario_feriados: $("agFeriados").value || "nacional",
           tentar_municipal_se_zerado: $("agMunicipal").value === "true",
+          ultimo_envio_sucesso: $("agUltimoOk").value || null,
         };
         const resp = await fetch("/agendamento/", {
           method: "PUT",

@@ -567,6 +567,16 @@ def _ajustar_mcr_com_mab(mab_json: dict, mcr_json: dict) -> dict:
             "Carregue arquivos do mesmo dia."
         )
 
+    # Sem XLS do dia na SUFIN o MCR vem vazio; o ajuste NÃO pode inventar o arquivo inteiro.
+    fonte_ok = mcr_json.get("fonte_xls_encontrada")
+    if fonte_ok is None:
+        fonte_ok = len(mcr_json.get("resultados") or []) > 0
+    if not fonte_ok:
+        raise ValueError(
+            f"MCR sem arquivo XLS na pasta SUFIN para {mcr_data}. "
+            "Não é permitido inventar MCR só com ajuste a partir do MAB."
+        )
+
     mcr_ajustado = copy.deepcopy(mcr_json)
     totais_mab = _extrair_totais_mab_por_tipo_banco(mab_json)
     totais_mcr = _extrair_totais_mcr_por_tipo_banco(mcr_json)
@@ -580,6 +590,9 @@ def _ajustar_mcr_com_mab(mab_json: dict, mcr_json: dict) -> dict:
         dif = diferencas[tipo]
         if abs(dif) < 0.01:
             continue
+        # Só cria bloco "ajuste_*" se já existir ao menos um bloco real do outro banco
+        # e o MAB desse tipo tiver valor — ainda assim exige fonte XLS (já validado acima).
+        # Se o MCR não tem esse banco mas tem o outro, _garantir_bloco_mcr preenche o faltante.
         ok = _adicionar_lancamento_ajuste_no_mcr(mcr_ajustado, tipo, dif)
         if not ok:
             raise ValueError(
@@ -1919,6 +1932,10 @@ def _montar_payload_mcr(dia: int, mes: int, ano: int) -> dict:
             totais_por_banco[banco] += valor
         totais_por_banco[banco] = float(_round2_half_up(totais_por_banco[banco]))
     data_filtro_str = f"{dia:02d}/{mes:02d}/{ano}"
+    arquivos_fonte = [
+        str(res.get("arquivo") or res.get("banco") or "")
+        for res in resultados_filtrados
+    ]
     return {
         "tipo": "MCR",
         "data_filtro": data_filtro_str,
@@ -1927,6 +1944,8 @@ def _montar_payload_mcr(dia: int, mes: int, ano: int) -> dict:
         "total_registros": len(resultados_filtrados),
         "totais_por_banco": totais_por_banco,
         "resultados": adicionar_codigo_resumido_mcr(resultados_filtrados),
+        "arquivos_fonte": arquivos_fonte,
+        "fonte_xls_encontrada": len(resultados_filtrados) > 0,
     }
 
 def _normalizar_deducoes_filtradas(resultados_filtrados: list, codigo_deducao: str) -> list:
@@ -2336,6 +2355,11 @@ def _gerar_pacote_do_dia(
     if precisa_mcr:
         try:
             mcr_json = _montar_payload_mcr(dia, mes, ano)
+            if not mcr_json.get("fonte_xls_encontrada"):
+                erros.append(
+                    f"MCR: nenhum XLS ({dia:02d}{mes:02d}bb / {dia:02d}{mes:02d}cef) "
+                    f"encontrado na pasta SUFIN para {data_alvo}."
+                )
         except Exception as e:
             erros.append(f"MCR: {e}")
 
@@ -2351,7 +2375,8 @@ def _gerar_pacote_do_dia(
         except Exception as e:
             erros.append(f"Descontos: {e}")
 
-    if precisa_mcr and mab_json is not None and mcr_json is not None:
+    mcr_fonte_ok = bool(mcr_json and mcr_json.get("fonte_xls_encontrada"))
+    if precisa_mcr and mab_json is not None and mcr_json is not None and mcr_fonte_ok:
         try:
             erro_mab = _validar_estrutura_mab_para_ajuste(mab_json)
             erro_mcr = _validar_estrutura_mcr_para_ajuste(mcr_json)
@@ -2374,6 +2399,9 @@ def _gerar_pacote_do_dia(
         conteudo["mab"] = mab_json
     if "mcr" in tipos and mcr_final is not None:
         conteudo["mcr"] = mcr_final
+    elif "mcr" in tipos and mcr_json is not None and not mcr_fonte_ok:
+        # Não grava/envia MCR inventado; mantém só o aviso em erros.
+        pass
     elif "mcr" in tipos and mcr_json is not None:
         erros.append("MCR ajustado indisponivel; arquivo mcr_dados nao foi gerado.")
     if "renuncias" in tipos and renuncias_json is not None:
@@ -2394,6 +2422,10 @@ def _gerar_pacote_do_dia(
         mcr_qtd = (mcr_final or {}).get("total_registros") or 0
         if not share.get("acessivel"):
             erros.append("Envio ao S3 cancelado: compartilhamento SEFAZ inacessível no container.")
+        elif precisa_mcr and not mcr_fonte_ok:
+            erros.append(
+                "Envio ao S3 cancelado: MCR sem arquivo XLS na pasta SUFIN para o dia."
+            )
         elif "mab" in tipos and "mcr" in tipos and mab_qtd == 0 and mcr_qtd == 0:
             erros.append(
                 "Envio ao S3 cancelado: MAB e MCR vieram vazios (provável falha de leitura das pastas)."
@@ -2439,6 +2471,7 @@ def _gerar_pacote_do_dia(
         "sucesso": len(erros) == 0 and len(conteudo) == len(tipos),
         "mab_vazio": mab_vazio,
         "mcr_vazio": mcr_vazio,
+        "mcr_fonte_ausente": bool(precisa_mcr and not mcr_fonte_ok),
         "calendario_feriados": calendario_usado,
         # Alerta de feriado so quando o MAB (conteudo do filtro) veio vazio.
         "alerta_zerado": mab_vazio,
@@ -2973,18 +3006,24 @@ def atualizar_agendamento(payload: dict = Body(...)):
 
 @app.post("/agendamento/executar_agora/")
 def executar_agendamento_agora(
-    data: str = Query(None, description="YYYY-MM-DD opcional; padrão = hoje (timezone do agendamento)."),
+    data: str = Query(None, description="YYYY-MM-DD opcional. Sem data = catch-up (todos os dias pendentes)."),
 ):
     from datetime import datetime
-    from agendamento import carregar_config, executar_rotina, _agora
+    from agendamento import carregar_config, executar_rotina, executar_catchup, _agora, _gravar_ultima, _chave_execucao
 
     cfg = carregar_config()
-    alvo = None
     if data:
         alvo = datetime.strptime(str(data).strip()[:10], "%Y-%m-%d").date()
-    else:
-        alvo = _agora(cfg.get("timezone")).date()
-    resultado = executar_rotina(forcar=True, data_alvo=alvo)
+        resultado = executar_rotina(forcar=True, data_alvo=alvo)
+        agora = _agora(cfg.get("timezone"))
+        chave = _chave_execucao(cfg, agora)
+        _gravar_ultima({
+            "ultima_execucao": resultado,
+            "ultima_chave": chave if agora.strftime("%H:%M") == str(cfg.get("hora") or "")[:5] else cfg.get("ultima_chave"),
+        })
+        return JSONResponse(content={"sucesso": True, "resultado": resultado, "config": carregar_config()})
+
+    resultado = executar_catchup(forcar=True)
     return JSONResponse(content={"sucesso": True, "resultado": resultado, "config": carregar_config()})
 
 
