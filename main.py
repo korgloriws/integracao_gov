@@ -558,6 +558,28 @@ def _adicionar_lancamento_ajuste_no_mcr(mcr_json: dict, tipo_banco: str, diferen
     })
     return True
 
+def _mcr_tem_lancamentos_reais(mcr_json: dict) -> bool:
+    """True se existe ao menos um lançamento vindo de XLS (não só estrutura vazia)."""
+    for item in mcr_json.get("resultados") or []:
+        for d in item.get("dados") or []:
+            natureza = str(
+                d.get("codigo_receita")
+                or d.get("Natureza_da_Receita")
+                or d.get("Natureza da Receita")
+                or ""
+            ).strip()
+            if natureza.replace(".", "").isdigit() and natureza.replace(".", "") == "1999992100":
+                continue  # linha de ajuste, não conta como fonte
+            valor = _parse_valor_monetario(
+                d.get("valor_receita", d.get("liquido", d.get("Líquido", "0")))
+            )
+            if natureza and abs(valor) >= 0.01:
+                return True
+            if natureza and any(ch.isdigit() for ch in natureza):
+                return True
+    return False
+
+
 def _ajustar_mcr_com_mab(mab_json: dict, mcr_json: dict) -> dict:
     mab_data = str(mab_json.get("data_arrecadacao", "")).strip()
     mcr_data = str(mcr_json.get("data_arrecadacao", "")).strip()
@@ -567,13 +589,14 @@ def _ajustar_mcr_com_mab(mab_json: dict, mcr_json: dict) -> dict:
             "Carregue arquivos do mesmo dia."
         )
 
-    # Sem XLS do dia na SUFIN o MCR vem vazio; o ajuste NÃO pode inventar o arquivo inteiro.
-    fonte_ok = mcr_json.get("fonte_xls_encontrada")
-    if fonte_ok is None:
-        fonte_ok = len(mcr_json.get("resultados") or []) > 0
-    if not fonte_ok:
+    # Sem XLS do dia (ou XLS sem lançamentos) o MCR não pode ser inventado a partir do MAB.
+    fonte_flag = mcr_json.get("fonte_xls_encontrada")
+    tem_lancamentos = _mcr_tem_lancamentos_reais(mcr_json)
+    tem_blocos = len(mcr_json.get("resultados") or []) > 0
+    fonte_ok = bool(fonte_flag) if fonte_flag is not None else (tem_blocos and tem_lancamentos)
+    if not fonte_ok or not tem_lancamentos:
         raise ValueError(
-            f"MCR sem arquivo XLS na pasta SUFIN para {mcr_data}. "
+            f"MCR sem arquivo XLS válido na pasta SUFIN para {mcr_data}. "
             "Não é permitido inventar MCR só com ajuste a partir do MAB."
         )
 
@@ -590,16 +613,12 @@ def _ajustar_mcr_com_mab(mab_json: dict, mcr_json: dict) -> dict:
         dif = diferencas[tipo]
         if abs(dif) < 0.01:
             continue
-        # Só cria bloco "ajuste_*" se já existir ao menos um bloco real do outro banco
-        # e o MAB desse tipo tiver valor — ainda assim exige fonte XLS (já validado acima).
-        # Se o MCR não tem esse banco mas tem o outro, _garantir_bloco_mcr preenche o faltante.
         ok = _adicionar_lancamento_ajuste_no_mcr(mcr_ajustado, tipo, dif)
         if not ok:
             raise ValueError(
                 f"Nao foi encontrado bloco de resultados do MCR para o banco '{tipo}'."
             )
 
-        # Atualiza totais_por_banco mantendo a mesma estrutura do JSON atual.
         chave_encontrada = None
         for chave in mcr_ajustado.get("totais_por_banco", {}).keys():
             if _inferir_tipo_banco(chave) == tipo:
@@ -1936,7 +1955,7 @@ def _montar_payload_mcr(dia: int, mes: int, ano: int) -> dict:
         str(res.get("arquivo") or res.get("banco") or "")
         for res in resultados_filtrados
     ]
-    return {
+    payload = {
         "tipo": "MCR",
         "data_filtro": data_filtro_str,
         "data_arrecadacao": data_filtro_str,
@@ -1947,6 +1966,10 @@ def _montar_payload_mcr(dia: int, mes: int, ano: int) -> dict:
         "arquivos_fonte": arquivos_fonte,
         "fonte_xls_encontrada": len(resultados_filtrados) > 0,
     }
+    # Exige lançamentos reais (arquivo encontrado porém ilegível/vazio não conta).
+    if payload["fonte_xls_encontrada"] and not _mcr_tem_lancamentos_reais(payload):
+        payload["fonte_xls_encontrada"] = False
+    return payload
 
 def _normalizar_deducoes_filtradas(resultados_filtrados: list, codigo_deducao: str) -> list:
     resultados_normalizados = []
@@ -2375,7 +2398,20 @@ def _gerar_pacote_do_dia(
         except Exception as e:
             erros.append(f"Descontos: {e}")
 
-    mcr_fonte_ok = bool(mcr_json and mcr_json.get("fonte_xls_encontrada"))
+    mcr_fonte_ok = bool(
+        mcr_json
+        and mcr_json.get("fonte_xls_encontrada")
+        and _mcr_tem_lancamentos_reais(mcr_json)
+    )
+    if precisa_mcr and mcr_json is not None and not mcr_fonte_ok:
+        # reforça mensagem mesmo se _montar_payload_mcr não marcou
+        msg = (
+            f"MCR: nenhum XLS válido ({dia:02d}{mes:02d}bb / {dia:02d}{mes:02d}cef) "
+            f"com lançamentos na pasta SUFIN para {data_alvo}."
+        )
+        if msg not in erros:
+            erros.append(msg)
+
     if precisa_mcr and mab_json is not None and mcr_json is not None and mcr_fonte_ok:
         try:
             erro_mab = _validar_estrutura_mab_para_ajuste(mab_json)
