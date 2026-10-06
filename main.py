@@ -1767,6 +1767,11 @@ def home():
         return f.read()
 
 
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
+
 @app.get("/processar/")
 def processar():
     resultados = []

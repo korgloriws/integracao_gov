@@ -1111,10 +1111,25 @@
     function jsonBox(obj) {
       return "<pre>" + esc(JSON.stringify(obj, null, 2)) + "</pre>";
     }
+    // Nginx serve em /integracao/; as APIs precisam do mesmo prefixo.
+    const API_BASE = (function () {
+      const path = location.pathname || "";
+      if (path === "/integracao" || path.startsWith("/integracao/")) return "/integracao";
+      return "";
+    })();
+    function apiUrl(url) {
+      if (!url) return API_BASE || "/";
+      if (/^https?:\/\//i.test(url)) return url;
+      if (url.charAt(0) === "/") return API_BASE + url;
+      return API_BASE + "/" + url;
+    }
     async function getJson(url) {
-      const resp = await fetch(url);
+      const resp = await fetch(apiUrl(url));
       const text = await resp.text();
       try { return JSON.parse(text); } catch (e) { throw new Error("Resposta inválida: " + text.slice(0, 200)); }
+    }
+    function apiFetch(url, opts) {
+      return fetch(apiUrl(url), opts);
     }
     function abrirPainel(nome) {
       document.querySelectorAll(".panel").forEach((p) => {
@@ -1991,7 +2006,7 @@
         const tipo = btn.getAttribute("data-rel");
         mostrarLoading("Gerando relatório");
         try {
-          const resp = await fetch("/gerar_relatorio_" + tipo + "/?mes=" + p.mes + "&ano=" + p.ano);
+          const resp = await apiFetch("/gerar_relatorio_" + tipo + "/?mes=" + p.mes + "&ano=" + p.ano);
           if (!resp.ok) throw new Error("HTTP " + resp.status);
           const blob = await resp.blob();
           const a = document.createElement("a");
@@ -2007,7 +2022,7 @@
       e.preventDefault();
       mostrarLoading("Ajustando MCR");
       try {
-        const resp = await fetch("/ajustar_mcr_por_mab_json/", { method: "POST", body: new FormData($("formAjuste")) });
+        const resp = await apiFetch("/ajustar_mcr_por_mab_json/", { method: "POST", body: new FormData($("formAjuste")) });
         $("ajusteOut").innerHTML = jsonBox(await resp.json());
       } catch (err) {
         $("ajusteOut").innerHTML = "<div class='alert err'>" + esc(err.message) + "</div>";
@@ -2099,7 +2114,7 @@
           tentar_municipal_se_zerado: $("agMunicipal").value === "true",
           ultimo_envio_sucesso: $("agUltimoOk").value || null,
         };
-        const resp = await fetch("/agendamento/", {
+        const resp = await apiFetch("/agendamento/", {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
@@ -2118,7 +2133,7 @@
       const qs = data ? ("?data=" + encodeURIComponent(data)) : "";
       mostrarLoading("Executando rotina automática");
       try {
-        const resp = await fetch("/agendamento/executar_agora/" + qs, { method: "POST" });
+        const resp = await apiFetch("/agendamento/executar_agora/" + qs, { method: "POST" });
         const d = await resp.json();
         if (!resp.ok) throw new Error((d && d.mensagem) || "Falha na execução");
         const r = d.resultado || {};
